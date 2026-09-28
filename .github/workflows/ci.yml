@@ -1,0 +1,68 @@
+name: CI/CD - Billing Service
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release --collect:"XPlat Code Coverage"
+      # TODO: publicar cobertura no SonarQube (requisito da Fase 4, meta >=80%)
+
+  build-docker:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+
+  deploy-terraform:
+    if: github.ref == 'refs/heads/main'
+    needs: build-docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - working-directory: terraform
+        run: |
+          terraform init
+          terraform apply -auto-approve -var="environment=dev"
+
+  deploy-k8s:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # TODO: configurar kubectl contra o cluster EKS (aws eks update-kubeconfig)
+      - run: |
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml
+          kubectl rollout restart deployment/oficina-billing-service -n oficina

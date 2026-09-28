@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: oficina_billing
+      POSTGRES_USER: billing_user
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - "5433:5432"
+    volumes:
+      - billing-db-data:/var/lib/postgresql/data
+
+  billing-api:
+    build: .
+    ports:
+      - "5001:8080"
+    environment:
+      ConnectionStrings__BillingDb: "Host=db;Port=5432;Database=oficina_billing;Username=billing_user;Password=changeme"
+    depends_on:
+      - db
+
+volumes:
+  billing-db-data:

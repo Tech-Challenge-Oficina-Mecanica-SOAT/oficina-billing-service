@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-config
+  namespace: oficina
+data:
+  Services__OsService__BaseUrl: "http://oficina-os-service.oficina.svc.cluster.local"
+  Services__CadastrosService__BaseUrl: "http://oficina-cadastros-service.oficina.svc.cluster.local"
+  AWS__Region: "us-east-1"
