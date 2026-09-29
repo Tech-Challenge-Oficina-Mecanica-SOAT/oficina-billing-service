@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OficinaBilling.Application\OficinaBilling.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- BackgroundService (OutboxPublisherBackgroundService, BillingQueueConsumer) vive aqui.
+         Necessário porque este é um projeto de biblioteca comum (Sdk "Microsoft.NET.Sdk"),
+         não um projeto Web — o SDK Web referencia isso implicitamente, este não. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.4" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.4" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.6" />
+    <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.2.16" />
+    <PackageReference Include="AWSSDK.SQS" Version="4.0.2.16" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.3" />
+    <PackageReference Include="mercadopago-sdk" Version="2.4.1" />
+  </ItemGroup>
+</Project>
