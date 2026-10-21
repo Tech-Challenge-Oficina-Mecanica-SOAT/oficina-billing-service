@@ -1,13 +1,12 @@
 # oficina-billing-service
 
 Serviço de **Orçamentos + Pagamentos** da Oficina Mecânica (Fase 4 — microsserviços).
-Dono: Tavares. Participante no Saga orquestrado pelo **OS Service**.
+Dono: Tavares (Papel B). Participante do Saga orquestrado pelo **OS Service**.
 
-## Por que essa estrutura
+Alinhado aos contratos oficiais do pacote da Fase 4: `contratos/openapi/billing.yaml`,
+`contratos/eventos/schemas.md` e `planos/plano-tavares-billing-service.md`.
 
-Segue a mesma **Clean Architecture** do `oficina-mecanica` (Fase 3), pra reaproveitar o
-que o grupo já domina — só que agora tudo dentro de um único serviço pequeno, dono do
-próprio banco, do próprio Terraform e do próprio deploy.
+## Estrutura (Clean Architecture)
 
 ```
 src/
@@ -18,59 +17,93 @@ src/
 ```
 
 Regra de dependência: `API → Application → Domain`, com `Infrastructure` implementando
-as interfaces que `Application` declara. O `Domain` nunca sabe que Postgres, SNS ou
-Mercado Pago existem.
+as interfaces que `Application` declara.
 
-## O que já está esboçado
+## Status atual
 
-| Pasta | Status |
-|---|---|
-| `Domain/Entities` (`Orcamento`, `Pagamento`) | ✅ completo, com regras de transição de status |
-| `Application/UseCases/Orcamento/GerarOrcamento` | ✅ completo — fluxo principal (consulta Cadastros, soma, persiste, publica evento) |
-| `Application/UseCases/Pagamento/ProcessarWebhookMercadoPago` | ✅ completo — idempotente |
-| Demais use cases (`Aprovar`, `Recusar`, `Consultar...`, `CriarCobranca`) | 🚧 esqueleto, `TODO` marcado |
-| `Infrastructure/ExternalServices` (clientes REST + Mercado Pago) | 🚧 REST clients prontos; `MercadoPagoGateway` ainda lança `NotImplementedException` |
-| `Infrastructure/Messaging` (SNS publisher + consumers SQS) | 🚧 publisher pronto; consumers são só o esqueleto (precisam virar `BackgroundService`) |
-| `terraform/` | ✅ estrutura completa: database lógico, topics que este serviço **é dono**, assinaturas dos topics que **consome** |
-| `k8s/`, `Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml` | ✅ prontos para ajustar |
+`Domain` e `Application` compilam (`dotnet build`, .NET 10). `Infrastructure` e `API` usam pacotes
+NuGet (EF Core, AWS SDK, SDK do Mercado Pago) que **não puderam ser restaurados** no ambiente onde
+as últimas correções foram feitas; a lógica que não depende desses pacotes (use cases, controller do
+webhook, dispatcher de eventos, publisher da Outbox, assinatura) foi compilada e **executada** num
+harness com repositórios em memória (60 verificações, incluindo HTTP real). O que depende de EF/AWS/SDK
+do MP só foi revisado, não executado: rode `dotnet restore && dotnet build` na sua máquina primeiro.
+Veja `docs/GUIA-DE-TESTES.md` para o que mudou e como testar.
 
-## Como este serviço se conecta aos outros
+| Camada | O que tem | Status |
+|---|---|---|
+| **Domain** | `Orcamento` (com validade/expiração/cancelamento por compensação), `Pagamento`, `OrcamentoItem`, `OutboxMessage`, `EventoProcessado` | ✅ completo, compilado |
+| **Application** | Todos os use cases implementados: `GerarOrcamento`, `AprovarOrcamento`, `RecusarOrcamento`, `ConsultarOrcamento`, `CancelarOrcamentoPorOs`, `CriarCobranca`, `ConsultarPagamento`, `ProcessarWebhookMercadoPago` | ✅ completo, compilado |
+| **Infrastructure/Persistence** | `BillingDbContext`, EF Configurations, Repositories, `UnitOfWork`, `OutboxRepository`, `IdempotenciaRepository` | ✅ completo, não compilado aqui |
+| **Infrastructure/ExternalServices** | `OsServiceClient`, `CadastrosServiceClient` (REST), `MercadoPagoGateway` (SDK real `mercadopago-sdk` v2.4.1) | ✅ completo, não compilado aqui |
+| **Infrastructure/Messaging** | `OutboxEventPublisher`, `OutboxPublisherBackgroundService` (outbox → SNS), `BillingQueueConsumer` (1 consumer, despacha por `eventType`) | ✅ completo, não compilado aqui |
+| **API** | `Program.cs` com toda a DI, Controllers batendo 1:1 com `billing.yaml` | ✅ completo, não compilado aqui |
+| **Testes** | `GerarOrcamento` (3, com Moq) + webhook, cobrança, aprovação expirada, `Pagamento`, `Orcamento` e assinatura do webhook (fakes em memória) | ✅ escritos; os novos foram executados num harness, `dotnet test` não rodou aqui |
+| **Kit de teste local** | `docker-compose` com Postgres + LocalStack (SNS/SQS/SSM) + WireMock, gateway MP fake, endpoints `/dev/*`, scripts de cenário em `kit/scripts/` | ✅ novo (ver `docs/GUIA-DE-TESTES.md`) |
+| **EF Core Migration inicial** | — | ❌ falta gerar (`dotnet ef migrations add InitialCreate`). Em dev, `Database:EnsureCreated=true` cria as tabelas sem migration |
+| **BDD (SpecFlow/Reqnroll)** | — | ❌ não iniciado (plano: semana 5) |
 
-**Síncrono (REST, você chama):**
-- `OS Service` → busca dados da ordem de serviço
-- `Cadastros Service` → busca preço de peça/serviço
+## Fluxo de ponta a ponta implementado
 
-**Assíncrono (você é dono — publica):**
-`orcamento.gerado`, `orcamento.aprovado`, `orcamento.recusado`, `pagamento.confirmado`, `pagamento.recusado`
+1. `diagnostico.concluido` chega na fila → `BillingQueueConsumer` → `GerarOrcamentoUseCase`
+   busca preço de cada peça/serviço no Cadastros → soma → salva `Orcamento` + grava evento
+   `orcamento.gerado` na Outbox (mesma transação)
+2. `OutboxPublisherBackgroundService` lê a Outbox a cada 5s e publica no SNS
+3. Cliente chama `POST /orcamentos/{id}/aprovar` → `orcamento.aprovado` na Outbox
+4. `execucao.finalizada` chega na fila → `CriarCobrancaUseCase` cria a preferência no
+   Mercado Pago e salva `Pagamento` como `Pendente`
+5. Mercado Pago chama `POST /pagamentos/webhook/mercado-pago` → valida `x-signature` → confirma o
+   status real na API do MP (nunca confia só no payload) → localiza o `Pagamento` pelo
+   `external_reference` (= Id do Orçamento) → `pagamento.confirmado`/`recusado` na Outbox
+6. `os.cancelada` chega na fila → `CancelarOrcamentoPorOsUseCase` cancela o orçamento
+   pendente (compensação da saga, não publica evento novo)
 
-**Assíncrono (você consome — não é dono):**
-`diagnostico.concluido` (do Execução Service) dispara `GerarOrcamentoUseCase`
-`execucao.finalizada` (do Execução Service) dispara `CriarCobrancaUseCase`
+## Como testar localmente
 
-> Regra de ouro do grupo: cada serviço só cria/edita os SNS topics que publica, no
-> próprio Terraform. Para consumir o topic de outro serviço, você lê o ARN dele via
-> Parameter Store (`terraform/subscriptions.tf`) — nunca edita o repositório alheio.
-
-## Rodando local
+Guia completo em **[docs/GUIA-DE-TESTES.md](docs/GUIA-DE-TESTES.md)**. Resumo:
 
 ```bash
-make up      # sobe Postgres + API via docker compose
-make test    # roda os testes
-make down    # derruba tudo
+docker compose up -d --build        # Postgres + LocalStack + WireMock + API (MP fake, /dev/* ligado)
+./kit/scripts/fluxo-feliz.sh        # diagnóstico -> orçamento -> aprova -> cobrança -> webhook -> confirmado
+./kit/scripts/fluxo-pagamento-recusado.sh
+./kit/scripts/fluxo-cancelamento.sh
+./kit/scripts/read-published.sh     # o que o Billing publicou no SNS
 ```
 
-## Próximos passos sugeridos (nessa ordem)
+## Como se conecta aos outros serviços
 
-1. `dotnet restore` no repo pra confirmar que os csproj resolvem (ajuste as
-   versões de pacote no `Infrastructure.csproj`, foram postas de forma ilustrativa)
-2. Implementar `EF Core Configurations` (`Persistence/Configurations`) e a primeira migration
-3. Implementar `MercadoPagoGateway` de verdade com o SDK oficial (sandbox)
-4. Transformar `DiagnosticoConcluidoConsumer` e `ExecucaoFinalizadaConsumer` em `BackgroundService`
-5. `terraform init` + `apply` (dev) — cria o database lógico, os topics e a queue
-6. Preencher os use cases marcados como `TODO`
-7. Escrever os 2 ADRs globais (Saga Orquestrado vs Coreografado; SNS/SQS vs alternativas)
+**REST síncrono (você chama):** `OS Service` (`GET /ordens-servico/{id}`), `Cadastros Service`
+(`GET /pecas/{id}`, `GET /servicos/{id}`).
 
-## Testes
+**Você publica (dono):** `orcamento.gerado`, `orcamento.aprovado`, `orcamento.recusado`,
+`pagamento.confirmado`, `pagamento.recusado`.
 
-- `tests/OficinaBilling.UnitTests` — já tem 1 teste de exemplo do `GerarOrcamentoUseCase` com Moq + FluentAssertions
-- `tests/OficinaBilling.IntegrationTests` — esqueleto com Testcontainers.PostgreSql, ainda vazio
+**Você consome (não é dono):** `diagnostico.concluido`, `execucao.finalizada`, `os.cancelada`
+— todos numa fila única `oficina-{env}-billing-queue`, despachados por `eventType` dentro
+do próprio `BillingQueueConsumer`.
+
+> Regra do grupo: cada serviço só cria/edita os SNS topics que publica, no próprio
+> Terraform (`terraform/messaging.tf`). Para consumir topic de outro serviço, lê o ARN
+> via Parameter Store (`terraform/subscriptions.tf`) — nunca edita o repositório alheio.
+
+## Próximos passos (ordem sugerida)
+
+1. `dotnet restore` + `dotnet build` + `dotnet test` na sua máquina; corrigir o que o compilador reclamar
+   em Infrastructure/API (não foi possível compilar essas camadas com os pacotes reais)
+2. `docker compose up -d --build` e rodar os scripts de `kit/scripts/`
+3. `dotnet ef migrations add InitialCreate` (e desligar `Database:EnsureCreated` fora de dev)
+4. Testar com o **Mercado Pago sandbox real** (ngrok + `MercadoPago:NotificationUrl` + `WebhookSecret`),
+   passo a passo no guia
+5. Escrever os 2 ADRs globais (Saga Orquestrado vs Coreografado; SNS/SQS vs alternativas)
+6. `terraform init` + `apply` (dev)
+7. Cenários BDD (SpecFlow/Reqnroll) — semana 5 do plano
+
+## Comandos úteis
+
+```bash
+make deps    # sobe só Postgres + LocalStack + WireMock (rode a API pelo IDE / dotnet run)
+make up      # sobe tudo, incluindo a API em container
+make flow    # roda o fluxo feliz
+make logs    # logs da API
+make down    # derruba tudo (e apaga os volumes)
+make test    # dotnet test
+```

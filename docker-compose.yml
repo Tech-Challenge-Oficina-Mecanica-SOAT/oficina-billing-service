@@ -1,3 +1,14 @@
+# Ambiente local completo para testar o Billing sem AWS e sem Mercado Pago real:
+#   db         Postgres (porta 5433 no host)
+#   localstack SNS + SQS + SSM (porta 4566). O script kit/localstack/init cria tópicos, filas, DLQ e os
+#              parâmetros SSM que o TopicArnResolver lê — o mesmo desenho do terraform/, em miniatura.
+#   wiremock   Faz o papel do Cadastros e do OS Service (porta 5100). Mapeamentos em kit/wiremock/.
+#   billing-api A API em Development, com MercadoPago:UseFake=true e endpoints /dev/* ligados.
+#
+#   docker compose up -d --build     # tudo
+#   docker compose up -d db localstack wiremock   # só as dependências (rode a API pelo IDE/dotnet run)
+name: oficina-billing
+
 services:
   db:
     image: postgres:16
@@ -9,15 +20,64 @@ services:
       - "5433:5432"
     volumes:
       - billing-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing_user -d oficina_billing"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  localstack:
+    # Versão fixada de propósito: imagens mais novas podem exigir conta/token.
+    image: localstack/localstack:3.8.1
+    environment:
+      SERVICES: sns,sqs,ssm
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./kit/localstack/init/ready.d:/etc/localstack/init/ready.d
+    healthcheck:
+      # "healthy" só quando o 01-setup.sh terminou: o último parâmetro SSM que ele cria já existe.
+      test: ["CMD-SHELL", "awslocal ssm get-parameter --name /oficina/dev/messaging/topics/pagamento.recusado/arn >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    command: ["--global-response-templating", "--verbose"]
+    ports:
+      - "5100:8080"
+    volumes:
+      - ./kit/wiremock:/home/wiremock
 
   billing-api:
     build: .
     ports:
       - "5001:8080"
     environment:
+      ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__BillingDb: "Host=db;Port=5432;Database=oficina_billing;Username=billing_user;Password=changeme"
+      Services__OsService__BaseUrl: "http://wiremock:8080"
+      Services__CadastrosService__BaseUrl: "http://wiremock:8080"
+      AWS__ServiceURL: "http://localstack:4566"
+      Messaging__Enabled: "true"
+      Messaging__QueueUrl: "http://localstack:4566/000000000000/oficina-dev-billing-queue"
+      # Mercado Pago: por padrão FAKE. Para o sandbox de verdade, copie .env.example para .env,
+      # preencha e recrie a API:  docker compose up -d --force-recreate billing-api
+      MercadoPago__UseFake: "${MP_USE_FAKE:-true}"
+      MercadoPago__AccessToken: "${MP_ACCESS_TOKEN:-}"
+      MercadoPago__NotificationUrl: "${MP_NOTIFICATION_URL:-}"
+      MercadoPago__ValidateSignature: "${MP_VALIDATE_SIGNATURE:-false}"
+      MercadoPago__WebhookSecret: "${MP_WEBHOOK_SECRET:-segredo-de-teste-local}"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      wiremock:
+        condition: service_started
 
 volumes:
   billing-db-data:
