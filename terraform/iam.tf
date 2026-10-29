@@ -51,9 +51,9 @@ resource "aws_iam_role_policy" "billing" {
         Resource = [aws_sqs_queue.billing_queue.arn]
       },
       {
-        Sid      = "ReadMessagingAndRdsParameters"
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter"]
+        Sid    = "ReadMessagingAndRdsParameters"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter"]
         Resource = [
           "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/oficina/${var.environment}/messaging/*",
           "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/oficina/${var.environment}/rds/endpoint",
