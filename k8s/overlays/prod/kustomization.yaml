@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: oficina-prod
+resources:
+  - ../../base
+patches:
+  - target: { kind: ServiceAccount, name: oficina-billing-service }
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::<ACCOUNT_ID>:role/oficina-prod-billing   # output billing_role_arn
+  - target: { kind: ConfigMap, name: oficina-billing-config }
+    patch: |-
+      - { op: replace, path: /data/Messaging__Environment, value: "prod" }
+      - { op: replace, path: /data/Services__OsService__BaseUrl, value: "http://oficina-os-service.oficina-prod.svc.cluster.local" }
+      - { op: replace, path: /data/Services__CadastrosService__BaseUrl, value: "http://oficina-cadastros-service.oficina-prod.svc.cluster.local" }
+      - { op: replace, path: /data/Secrets__MercadoPagoSecretId, value: "oficina/prod/billing/mercadopago-access-token" }
+      - { op: replace, path: /data/Secrets__WebhookSecretId, value: "oficina/prod/billing/mercadopago-webhook-secret" }
+      - { op: replace, path: /data/Secrets__DbSecretId, value: "oficina/prod/billing/db-credentials" }
+      - { op: replace, path: /data/Secrets__DbEndpointParameter, value: "/oficina/prod/rds/endpoint" }
+      - { op: replace, path: /data/MercadoPago__NotificationUrl, value: "https://<HOST_DO_ALB_prod>/pagamentos/webhook/mercado-pago" }
+      - { op: replace, path: /data/NEW_RELIC_APP_NAME, value: "oficina-billing-prod" }
+  - target: { kind: Deployment, name: oficina-billing-service }
+    patch: |-
+      - { op: replace, path: /spec/replicas, value: 3 }

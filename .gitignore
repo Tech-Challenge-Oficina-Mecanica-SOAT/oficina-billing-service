@@ -8,3 +8,12 @@ appsettings.Local.json
 *.tfstate
 *.tfstate.backup
 .terraform/
+TestResults/
+coverage-report/
+.sonarqube/
+.scannerwork/
+*.trx
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*

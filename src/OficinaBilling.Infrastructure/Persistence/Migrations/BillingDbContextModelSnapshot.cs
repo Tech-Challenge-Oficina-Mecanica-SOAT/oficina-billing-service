@@ -17,12 +17,105 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("OficinaBilling.Domain.Entities.EventoProcessado", b =>
+            modelBuilder.Entity("OficinaBilling.Domain.Entities.Orcamento", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AprovadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CanceladoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrdemServicoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("ValorTotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrdemServicoId")
+                        .IsUnique();
+
+                    b.ToTable("orcamentos", (string)null);
+                });
+
+            modelBuilder.Entity("OficinaBilling.Domain.Entities.Pagamento", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConfirmadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LinkPagamento")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("MercadoPagoPaymentId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("MercadoPagoPreferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("OrcamentoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrdemServicoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("Valor")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MercadoPagoPaymentId");
+
+                    b.HasIndex("OrdemServicoId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('Pendente','Confirmado')");
+
+                    b.ToTable("pagamentos", (string)null);
+                });
+
+            modelBuilder.Entity("OficinaBilling.Infrastructure.Persistence.Entities.IdempotencyKeyEntry", b =>
                 {
                     b.Property<string>("Chave")
                         .HasMaxLength(200)
@@ -33,154 +126,58 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Chave");
 
-                    b.ToTable("eventos_processados", (string)null);
+                    b.ToTable("idempotency_keys", (string)null);
                 });
 
-            modelBuilder.Entity("OficinaBilling.Domain.Entities.Orcamento", b =>
+            modelBuilder.Entity("OficinaBilling.Infrastructure.Persistence.Entities.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime?>("DecididoEm")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("GeradoEm")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("MotivoRecusa")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid>("OsId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTime>("ValidadeAte")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OsId")
-                        .IsUnique();
-
-                    b.ToTable("orcamentos", (string)null);
-                });
-
-            modelBuilder.Entity("OficinaBilling.Domain.Entities.OutboxMessage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CriadoEm")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
+                    b.Property<string>("CorrelationId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<DateTime>("OcorridoEm")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Payload")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("text");
 
-                    b.Property<DateTime?>("PublicadoEm")
+                    b.Property<DateTime?>("ProcessadoEm")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Tentativas")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Topico")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("UltimoErro")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PublicadoEm");
+                    b.HasIndex("OcorridoEm")
+                        .HasFilter("\"ProcessadoEm\" IS NULL");
 
                     b.ToTable("outbox_messages", (string)null);
                 });
 
-            modelBuilder.Entity("OficinaBilling.Domain.Entities.Pagamento", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CriadoEm")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LinkPagamento")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("MercadoPagoId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("MotivoRecusa")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("OrcamentoId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OsId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PreferenceId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime?>("ResolvidoEm")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OsId")
-                        .IsUnique();
-
-                    b.HasIndex("PreferenceId");
-
-                    b.ToTable("pagamentos", (string)null);
-                });
-
             modelBuilder.Entity("OficinaBilling.Domain.Entities.Orcamento", b =>
                 {
-                    b.OwnsOne("OficinaBilling.Domain.ValueObjects.Dinheiro", "ValorTotal", b1 =>
+                    b.OwnsMany("OficinaBilling.Domain.Entities.ItemOrcamento", "Itens", b1 =>
                         {
-                            b1.Property<Guid>("OrcamentoId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<decimal>("Valor")
-                                .HasColumnType("numeric(12,2)")
-                                .HasColumnName("valor_total");
-
-                            b1.HasKey("OrcamentoId");
-
-                            b1.ToTable("orcamentos");
-
-                            b1.WithOwner()
-                                .HasForeignKey("OrcamentoId");
-                        });
-
-                    b.OwnsMany("OficinaBilling.Domain.Entities.OrcamentoItem", "Itens", b1 =>
-                        {
-                            b1.Property<Guid>("Id")
+                            b1.Property<int>("Id")
                                 .ValueGeneratedOnAdd()
-                                .HasColumnType("uuid");
+                                .HasColumnType("integer");
 
-                            b1.Property<string>("Nome")
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("Descricao")
                                 .IsRequired()
                                 .HasMaxLength(200)
                                 .HasColumnType("character varying(200)");
@@ -189,18 +186,10 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
                                 .HasColumnType("uuid");
 
                             b1.Property<decimal>("PrecoUnitario")
-                                .HasColumnType("numeric(12,2)");
+                                .HasColumnType("numeric(18,2)");
 
                             b1.Property<int>("Quantidade")
                                 .HasColumnType("integer");
-
-                            b1.Property<Guid>("ReferenciaId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<string>("Tipo")
-                                .IsRequired()
-                                .HasMaxLength(20)
-                                .HasColumnType("character varying(20)");
 
                             b1.HasKey("Id");
 
@@ -213,32 +202,6 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Itens");
-
-                    b.Navigation("ValorTotal")
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("OficinaBilling.Domain.Entities.Pagamento", b =>
-                {
-                    b.OwnsOne("OficinaBilling.Domain.ValueObjects.Dinheiro", "Valor", b1 =>
-                        {
-                            b1.Property<Guid>("PagamentoId")
-                                .HasColumnType("uuid");
-
-                            b1.Property<decimal>("Valor")
-                                .HasColumnType("numeric(12,2)")
-                                .HasColumnName("valor");
-
-                            b1.HasKey("PagamentoId");
-
-                            b1.ToTable("pagamentos");
-
-                            b1.WithOwner()
-                                .HasForeignKey("PagamentoId");
-                        });
-
-                    b.Navigation("Valor")
-                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

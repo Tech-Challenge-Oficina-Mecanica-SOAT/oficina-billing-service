@@ -1,21 +1,22 @@
 using OficinaBilling.Application.DTOs.Responses;
 using OficinaBilling.Domain.Entities;
-using OficinaBilling.Domain.Enums;
 
 namespace OficinaBilling.Application.Mappers;
 
 public static class OrcamentoMapper
 {
-    public static OrcamentoResponse ParaResponse(this Orcamento orcamento)
-    {
-        var pecas = orcamento.Itens.Where(i => i.Tipo == TipoItem.Peca).Select(ParaItemResponse).ToList();
-        var servicos = orcamento.Itens.Where(i => i.Tipo == TipoItem.Servico).Select(ParaItemResponse).ToList();
+    public static OrcamentoResponse ParaResponse(this Orcamento orcamento) => new(
+        orcamento.Id,
+        orcamento.OrdemServicoId,
+        orcamento.Status.ToString(),
+        orcamento.ValorTotal.Valor,
+        orcamento.CriadoEm,
+        orcamento.AprovadoEm,
+        orcamento.Itens
+            .Select(i => new ItemOrcamentoResponse(i.Descricao, i.Quantidade, i.PrecoUnitario.Valor, i.Subtotal.Valor))
+            .ToList());
 
-        return new OrcamentoResponse(
-            orcamento.Id, orcamento.OsId, orcamento.Status.ToString(),
-            pecas, servicos, orcamento.ValorTotal.Valor, orcamento.ValidadeAte, orcamento.GeradoEm);
-    }
-
-    private static ItemResponse ParaItemResponse(OrcamentoItem item) =>
-        new(item.ReferenciaId, item.Quantidade, item.PrecoUnitario, item.Subtotal.Valor);
+    public static PagamentoResponse ParaResponse(this Pagamento p) => new(
+        p.Id, p.OrcamentoId, p.OrdemServicoId, p.Status.ToString(), p.Valor.Valor,
+        p.LinkPagamento, p.MercadoPagoPaymentId, p.CriadoEm, p.ConfirmadoEm);
 }

@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: OficinaBilling API
+  version: v1
+  description: >
+    Orçamentos e pagamentos (Mercado Pago) da oficina — Billing Service da Fase 4.
+    Contrato da API REST implementada pelos controllers. O envelope de eventos assíncronos
+    segue docs/events.md e usa os campos eventType/data/osId do contrato compartilhado.
+    Em execução, o Swagger UI fica em /swagger (Swagger:Enabled=true).
+servers:
+  - url: http://localhost:5001
+    description: docker compose
+paths:
+  /orcamentos/{osId}:
+    get:
+      summary: Consulta o orçamento de uma ordem de serviço
+      tags: [Orcamentos]
+      parameters:
+        - { name: osId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OrcamentoResponse' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /orcamentos/{orcamentoId}/aprovar:
+    post:
+      summary: Aprova o orçamento (idempotente) — publica orcamento.aprovado
+      tags: [Orcamentos]
+      parameters:
+        - { name: orcamentoId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Aprovado, content: { application/json: { schema: { $ref: '#/components/schemas/OrcamentoResponse' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /orcamentos/{orcamentoId}/recusar:
+    post:
+      summary: Recusa o orçamento (idempotente) — publica orcamento.recusado
+      tags: [Orcamentos]
+      parameters:
+        - { name: orcamentoId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Recusado, content: { application/json: { schema: { $ref: '#/components/schemas/OrcamentoResponse' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /pagamentos/{osId}:
+    get:
+      summary: Consulta o pagamento da OS (inclui o link do Mercado Pago)
+      tags: [Pagamentos]
+      parameters:
+        - { name: osId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PagamentoResponse' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /pagamentos/webhook/mercado-pago:
+    post:
+      summary: Webhook do Mercado Pago (idempotente)
+      description: >
+        Endpoint público chamado pelo Mercado Pago. O status é sempre confirmado consultando a API do MP.
+        Com MercadoPago:ValidateSignature=true exige x-signature/x-request-id válidos (HMAC-SHA256).
+        Responde 200 para tudo que não adianta reenviar; 5xx apenas para falhas transitórias.
+      tags: [Pagamentos]
+      parameters:
+        - { name: data.id, in: query, required: false, schema: { type: string } }
+        - { name: id, in: query, required: false, schema: { type: string } }
+        - { name: type, in: query, required: false, schema: { type: string, example: payment } }
+        - { name: topic, in: query, required: false, schema: { type: string, example: payment } }
+        - { name: X-Idempotency-Key, in: header, required: false, schema: { type: string } }
+        - { name: x-signature, in: header, required: false, schema: { type: string, example: 'ts=1700000000,v1=…' } }
+        - { name: x-request-id, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, example: payment.updated }
+                type: { type: string, example: payment }
+                data: { type: object, properties: { id: { type: string, example: '123456789' } } }
+      responses:
+        '200': { description: Processado, ignorado ou duplicado }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { description: Assinatura inválida }
+        '500': { description: Falha transitória no processamento — o Mercado Pago pode reenviar a notificação }
+  /health:
+    get: { summary: Liveness, tags: [Health], responses: { '200': { description: OK } } }
+  /health/ready:
+    get: { summary: Readiness (verifica o banco), tags: [Health], responses: { '200': { description: OK }, '503': { description: Banco indisponível } } }
+components:
+  responses:
+    Problem:
+      description: Erro (RFC 7807)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+  schemas:
+    ProblemDetails:
+      type: object
+      properties:
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+    ItemOrcamentoResponse:
+      type: object
+      required: [descricao, quantidade, precoUnitario, subtotal]
+      properties:
+        descricao: { type: string }
+        quantidade: { type: integer }
+        precoUnitario: { type: number, format: double }
+        subtotal: { type: number, format: double }
+    OrcamentoResponse:
+      type: object
+      required: [id, ordemServicoId, status, valorTotal, criadoEm, itens]
+      properties:
+        id: { type: string, format: uuid }
+        ordemServicoId: { type: string, format: uuid }
+        status: { type: string, enum: [Gerado, Aprovado, Recusado, Cancelado] }
+        valorTotal: { type: number, format: double }
+        criadoEm: { type: string, format: date-time }
+        aprovadoEm: { type: string, format: date-time, nullable: true }
+        itens: { type: array, items: { $ref: '#/components/schemas/ItemOrcamentoResponse' } }
+    PagamentoResponse:
+      type: object
+      required: [id, orcamentoId, ordemServicoId, status, valor, criadoEm]
+      properties:
+        id: { type: string, format: uuid }
+        orcamentoId: { type: string, format: uuid }
+        ordemServicoId: { type: string, format: uuid }
+        status: { type: string, enum: [Pendente, Confirmado, Recusado, Cancelado, Estornado] }
+        valor: { type: number, format: double }
+        linkPagamento: { type: string, nullable: true }
+        mercadoPagoPaymentId: { type: string, nullable: true }
+        criadoEm: { type: string, format: date-time }
+        confirmadoEm: { type: string, format: date-time, nullable: true }

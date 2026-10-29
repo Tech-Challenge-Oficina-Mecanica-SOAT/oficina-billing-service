@@ -1,9 +1,8 @@
 namespace OficinaBilling.Application.DTOs.Requests;
 
-// Montado a partir do "data" do evento "diagnostico.concluido" (ver contratos/eventos/schemas.md).
+// Recebido do evento SNS "diagnostico.concluido" (publicado pelo Execução Service).
 public sealed record GerarOrcamentoRequest(
-    Guid OsId,
-    Guid DiagnosticoId,
+    Guid OrdemServicoId,
     List<ItemDiagnostico> Pecas,
     List<ItemDiagnostico> Servicos);
 

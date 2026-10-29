@@ -1,0 +1,23 @@
+# Expõe SOMENTE o webhook do Mercado Pago (o MP precisa de um endpoint público).
+# A API REST (orçamentos/pagamentos) continua acessível apenas dentro do cluster / API Gateway.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oficina-billing-webhook
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /pagamentos/webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: oficina-billing-service
+                port:
+                  number: 80

@@ -1,33 +1,32 @@
+using System.Net;
 using System.Net.Http.Json;
 using OficinaBilling.Application.Interfaces;
 
 namespace OficinaBilling.Infrastructure.ExternalServices;
 
-// REST síncrono: Billing -> Cadastros Service. Espelha GET /pecas/{id} e
-// GET /servicos/{id} (openapi/cadastros.yaml).
+// REST síncrono Billing -> Cadastros. 404 = "não existe" (null). Qualquer outra falha
+// (5xx, timeout) LANÇA, para a mensagem SQS ser reprocessada em vez de virar "peça inexistente".
+// Retry/timeout/circuit breaker vêm do handler de resiliência registrado no HttpClient.
 public class CadastrosServiceClient : ICadastrosServiceClient
 {
     private readonly HttpClient _httpClient;
 
     public CadastrosServiceClient(HttpClient httpClient) => _httpClient = httpClient;
 
-    public async Task<PrecoItem?> ObterPrecoPecaAsync(Guid pecaId, CancellationToken ct = default)
-    {
-        var response = await _httpClient.GetAsync($"/pecas/{pecaId}", ct);
-        if (!response.IsSuccessStatusCode) return null;
-        var dto = await response.Content.ReadFromJsonAsync<PecaDto>(cancellationToken: ct);
-        return dto is null ? null : new PrecoItem(dto.Id, dto.Nome, dto.PrecoUnitario);
-    }
+    public Task<PrecoItem?> ObterPrecoPecaAsync(Guid pecaId, CancellationToken ct = default) =>
+        ObterAsync($"/pecas/{pecaId}", ct);
 
-    public async Task<PrecoItem?> ObterPrecoServicoAsync(Guid servicoId, CancellationToken ct = default)
-    {
-        var response = await _httpClient.GetAsync($"/servicos/{servicoId}", ct);
-        if (!response.IsSuccessStatusCode) return null;
-        var dto = await response.Content.ReadFromJsonAsync<ServicoDto>(cancellationToken: ct);
-        return dto is null ? null : new PrecoItem(dto.Id, dto.Nome, dto.PrecoUnitario);
-    }
+    public Task<PrecoItem?> ObterPrecoServicoAsync(Guid servicoId, CancellationToken ct = default) =>
+        ObterAsync($"/servicos/{servicoId}", ct);
 
-    // Campos batem com os schemas Peca/Servico do contrato (cadastros.yaml).
-    private sealed record PecaDto(Guid Id, string Codigo, string Nome, decimal PrecoUnitario, int Estoque);
-    private sealed record ServicoDto(Guid Id, string Nome, decimal PrecoUnitario, decimal TempoEstimadoHoras);
+    private async Task<PrecoItem?> ObterAsync(string caminho, CancellationToken ct)
+    {
+        using var response = await _httpClient.GetAsync(caminho, ct);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PrecoItem>(cancellationToken: ct);
+    }
 }
