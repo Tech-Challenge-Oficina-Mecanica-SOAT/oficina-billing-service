@@ -1,18 +1,9 @@
-# Sem isto, o "COPY src/ src/" do Dockerfile leva junto as pastas bin/ e obj/ geradas no SEU host
-# (Windows). O obj/project.assets.json de lá aponta para C:\Users\...\.nuget\packages e sobrescreve o
-# resultado do "dotnet restore" feito dentro do container; aí o "publish --no-restore" falha com
-# NETSDK1064 (pacote não encontrado).
 **/bin/
 **/obj/
-
-# O que a imagem não precisa (menos contexto = build mais rápido)
-.git
-.github
-.vs
-.idea
-**/*.user
-tests/
-docs/
-k8s/
+.git/
+.env
 terraform/
-kit/
+k8s/
+docs/
+tests/
+TestResults/

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>opencover</Format>
+          <IncludeTestAssembly>false</IncludeTestAssembly>
+          <!-- Glue de composição, código gerado e adapters que só rodam contra serviços reais -->
+          <ExcludeByFile>**/Program.cs,**/Migrations/**,**/obj/**,**/*.g.cs,**/MercadoPagoGateway.cs,**/SnsEventPublisher.cs,**/SqsConsumerService.cs,**/SecretsLoader.cs</ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

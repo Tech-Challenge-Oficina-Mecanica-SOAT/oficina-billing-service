@@ -1,49 +1,36 @@
 using Microsoft.AspNetCore.Mvc;
-using OficinaBilling.Application.DTOs.Requests;
-using OficinaBilling.Application.UseCases.Orcamento;
+using OficinaBilling.Application.DTOs.Responses;
+using OficinaBilling.Application.UseCases.Orcamento.AprovarOrcamento;
+using OficinaBilling.Application.UseCases.Orcamento.ConsultarOrcamento;
+using OficinaBilling.Application.UseCases.Orcamento.RecusarOrcamento;
 
 namespace OficinaBilling.API.Controllers;
 
-// Espelha openapi/billing.yaml — paths /orcamentos/*.
 [ApiController]
 [Route("orcamentos")]
+[Produces("application/json")]
 public class OrcamentosController : ControllerBase
 {
-    private readonly ConsultarOrcamentoUseCase _consultarUseCase;
-    private readonly AprovarOrcamentoUseCase _aprovarUseCase;
-    private readonly RecusarOrcamentoUseCase _recusarUseCase;
-
-    public OrcamentosController(
-        ConsultarOrcamentoUseCase consultarUseCase,
-        AprovarOrcamentoUseCase aprovarUseCase,
-        RecusarOrcamentoUseCase recusarUseCase)
-    {
-        _consultarUseCase = consultarUseCase;
-        _aprovarUseCase = aprovarUseCase;
-        _recusarUseCase = recusarUseCase;
-    }
-
-    // GET /orcamentos/{osId}
+    /// <summary>Consulta o orçamento de uma ordem de serviço.</summary>
     [HttpGet("{osId:guid}")]
-    public async Task<IActionResult> ObterPorOs(Guid osId, CancellationToken ct)
-    {
-        var resultado = await _consultarUseCase.ExecutarAsync(osId, ct);
-        return resultado.Sucesso ? Ok(resultado.Valor) : NotFound(new { erro = resultado.Erro });
-    }
+    [ProducesResponseType(typeof(OrcamentoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Consultar(Guid osId, [FromServices] ConsultarOrcamentoUseCase useCase, CancellationToken ct) =>
+        (await useCase.ExecutarAsync(osId, ct)).ParaActionResult(this);
 
-    // POST /orcamentos/{orcamentoId}/aprovar
+    /// <summary>Aprova o orçamento (idempotente). Publica orcamento.aprovado, que dispara a execução.</summary>
     [HttpPost("{orcamentoId:guid}/aprovar")]
-    public async Task<IActionResult> Aprovar(Guid orcamentoId, CancellationToken ct)
-    {
-        var resultado = await _aprovarUseCase.ExecutarAsync(orcamentoId, ct);
-        return resultado.Sucesso ? NoContent() : BadRequest(new { erro = resultado.Erro });
-    }
+    [ProducesResponseType(typeof(OrcamentoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Aprovar(Guid orcamentoId, [FromServices] AprovarOrcamentoUseCase useCase, CancellationToken ct) =>
+        (await useCase.ExecutarAsync(orcamentoId, ct)).ParaActionResult(this);
 
-    // POST /orcamentos/{orcamentoId}/recusar
+    /// <summary>Recusa o orçamento (idempotente). Publica orcamento.recusado, que aciona a compensação do Saga.</summary>
     [HttpPost("{orcamentoId:guid}/recusar")]
-    public async Task<IActionResult> Recusar(Guid orcamentoId, [FromBody] RecusarOrcamentoRequest request, CancellationToken ct)
-    {
-        var resultado = await _recusarUseCase.ExecutarAsync(orcamentoId, request, ct);
-        return resultado.Sucesso ? NoContent() : BadRequest(new { erro = resultado.Erro });
-    }
+    [ProducesResponseType(typeof(OrcamentoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Recusar(Guid orcamentoId, [FromServices] RecusarOrcamentoUseCase useCase, CancellationToken ct) =>
+        (await useCase.ExecutarAsync(orcamentoId, ct)).ParaActionResult(this);
 }

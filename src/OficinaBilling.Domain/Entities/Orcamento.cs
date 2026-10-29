@@ -4,94 +4,83 @@ using OficinaBilling.Domain.ValueObjects;
 
 namespace OficinaBilling.Domain.Entities;
 
-public class Orcamento
+// Agregado raiz. Não referencia entidades de outros serviços por FK —
+// guarda apenas os IDs (OrdemServicoId) recebidos via evento/REST.
+public class Orcamento : IAggregateRoot
 {
-    public static readonly TimeSpan ValidadePadrao = TimeSpan.FromDays(7);
-
-    private readonly List<OrcamentoItem> _itens = new();
+    private readonly List<ItemOrcamento> _itens = new();
     private readonly List<object> _domainEvents = new();
 
     public Guid Id { get; private set; }
-    public Guid OsId { get; private set; }
+    public Guid OrdemServicoId { get; private set; }
     public StatusOrcamento Status { get; private set; }
     public Dinheiro ValorTotal { get; private set; } = Dinheiro.Zero;
-    public DateTime GeradoEm { get; private set; }
-    public DateTime ValidadeAte { get; private set; }
-    public DateTime? DecididoEm { get; private set; }
-    public string? MotivoRecusa { get; private set; }
-
-    public IReadOnlyCollection<OrcamentoItem> Itens => _itens;
-    public IReadOnlyCollection<object> DomainEvents => _domainEvents;
+    public DateTime CriadoEm { get; private set; }
+    public DateTime? AprovadoEm { get; private set; }
+    public DateTime? CanceladoEm { get; private set; }
+    public IReadOnlyCollection<ItemOrcamento> Itens => _itens.AsReadOnly();
+    public IReadOnlyCollection<object> DomainEvents => _domainEvents.AsReadOnly();
 
     private Orcamento() { } // EF Core
 
-    public static Orcamento Gerar(Guid osId, IEnumerable<OrcamentoItem> itens, DateTime? agora = null)
+    public static Orcamento Gerar(Guid ordemServicoId, IEnumerable<ItemOrcamento> itens)
     {
         var lista = itens.ToList();
         if (lista.Count == 0)
-            throw new ArgumentException("Orçamento precisa ter ao menos um item.", nameof(itens));
+            throw new ArgumentException("Um orçamento precisa de ao menos um item.", nameof(itens));
 
-        var now = agora ?? DateTime.UtcNow;
         var orcamento = new Orcamento
         {
             Id = Guid.NewGuid(),
-            OsId = osId,
+            OrdemServicoId = ordemServicoId,
             Status = StatusOrcamento.Gerado,
-            GeradoEm = now,
-            ValidadeAte = now + ValidadePadrao
+            CriadoEm = DateTime.UtcNow
         };
-        orcamento._itens.AddRange(lista);
-        orcamento.ValorTotal = lista.Aggregate(Dinheiro.Zero, (total, i) => total + i.Subtotal);
 
-        orcamento._domainEvents.Add(new OrcamentoGeradoEvent(
-            orcamento.OsId, orcamento.Id, orcamento.ValorTotal.Valor, orcamento.ValidadeAte, orcamento.GeradoEm));
+        orcamento._itens.AddRange(lista);
+        orcamento.ValorTotal = orcamento._itens.Aggregate(Dinheiro.Zero, (total, i) => total + i.Subtotal);
+        orcamento._domainEvents.Add(new OrcamentoGeradoEvent(orcamento.Id, orcamento.OrdemServicoId, orcamento.ValorTotal.Valor));
 
         return orcamento;
     }
 
-    public bool EstaExpirado(DateTime? agora = null) =>
-        Status == StatusOrcamento.Gerado && (agora ?? DateTime.UtcNow) > ValidadeAte;
-
-    public void Aprovar(DateTime? agora = null)
+    public void Aprovar()
     {
-        var now = agora ?? DateTime.UtcNow;
-
-        if (EstaExpirado(now))
-        {
-            Status = StatusOrcamento.Expirado;
-            throw new InvalidOperationException("Orçamento expirado; não pode mais ser aprovado.");
-        }
         if (Status != StatusOrcamento.Gerado)
-            throw new InvalidOperationException($"Só é possível aprovar um orçamento 'Gerado' (status atual: {Status}).");
+            throw new InvalidOperationException("Só é possível aprovar um orçamento com status 'Gerado'.");
 
         Status = StatusOrcamento.Aprovado;
-        DecididoEm = now;
-        _domainEvents.Add(new OrcamentoAprovadoEvent(OsId, Id, now));
+        AprovadoEm = DateTime.UtcNow;
+        _domainEvents.Add(new OrcamentoAprovadoEvent(Id, OrdemServicoId));
     }
 
-    public void Recusar(string? motivo, DateTime? agora = null)
+    public void Recusar()
     {
         if (Status != StatusOrcamento.Gerado)
-            throw new InvalidOperationException($"Só é possível recusar um orçamento 'Gerado' (status atual: {Status}).");
+            throw new InvalidOperationException("Só é possível recusar um orçamento com status 'Gerado'.");
 
-        var now = agora ?? DateTime.UtcNow;
         Status = StatusOrcamento.Recusado;
-        MotivoRecusa = motivo;
-        DecididoEm = now;
-        _domainEvents.Add(new OrcamentoRecusadoEvent(OsId, Id, motivo, now));
+        _domainEvents.Add(new OrcamentoRecusadoEvent(Id, OrdemServicoId));
     }
 
     /// <summary>
-    /// Compensação da saga: chamado quando chega o evento "os.cancelada".
-    /// Só cancela um orçamento ainda pendente de decisão; não desfaz um já aprovado/recusado.
+    /// Compensação do Saga (OS cancelada). Idempotente: devolve false se já estava encerrado.
+    /// Não publica evento — quem cancelou a OS é o orquestrador, que já conhece o desfecho.
     /// </summary>
-    public bool CancelarPorCompensacao(DateTime? agora = null)
+    public bool Cancelar()
     {
-        if (Status != StatusOrcamento.Gerado)
+        if (Status is StatusOrcamento.Cancelado or StatusOrcamento.Recusado)
             return false;
 
         Status = StatusOrcamento.Cancelado;
-        DecididoEm = agora ?? DateTime.UtcNow;
+        CanceladoEm = DateTime.UtcNow;
         return true;
     }
+
+    public void LimparEventos() => _domainEvents.Clear();
+}
+
+public sealed record ItemOrcamento(string Descricao, int Quantidade, Dinheiro PrecoUnitario)
+{
+    public Dinheiro Subtotal => new(PrecoUnitario.Valor * Quantidade);
 }

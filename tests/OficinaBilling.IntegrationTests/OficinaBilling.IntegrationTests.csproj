@@ -9,8 +9,14 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="FluentAssertions" Version="6.12.1" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.1.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <!-- BDD (SpecFlow substituto mantido pela comunidade) -->
+    <PackageReference Include="Reqnroll" Version="2.2.1" />
+    <PackageReference Include="Reqnroll.xUnit" Version="2.2.1" />
+    <PackageReference Include="Reqnroll.Tools.MsBuild.Generation" Version="2.2.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\OficinaBilling.API\OficinaBilling.API.csproj" />

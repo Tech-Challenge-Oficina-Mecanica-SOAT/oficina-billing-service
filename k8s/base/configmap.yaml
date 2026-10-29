@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oficina-billing-config
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  Aws__Region: "us-east-1"
+  Messaging__Provider: "Aws"
+  Messaging__ConsumerEnabled: "true"
+  Outbox__Enabled: "true"
+  Database__MigrateOnStartup: "true"
+  Swagger__Enabled: "true"
+  Secrets__Enabled: "true"
+  MercadoPago__UseFake: "false"
+  MercadoPago__UseSandbox: "true"
+  MercadoPago__ValidateSignature: "true"
+  # Ajustados por overlay:
+  Messaging__Environment: "REPLACE_ME"
+  Services__OsService__BaseUrl: "http://oficina-os-service.REPLACE_ME.svc.cluster.local"
+  Services__CadastrosService__BaseUrl: "http://oficina-cadastros-service.REPLACE_ME.svc.cluster.local"
+  Secrets__MercadoPagoSecretId: "REPLACE_ME"
+  Secrets__WebhookSecretId: "REPLACE_ME"
+  Secrets__DbSecretId: "REPLACE_ME"
+  Secrets__DbEndpointParameter: "REPLACE_ME"
+  MercadoPago__NotificationUrl: "REPLACE_ME"
+  NEW_RELIC_APP_NAME: "REPLACE_ME"

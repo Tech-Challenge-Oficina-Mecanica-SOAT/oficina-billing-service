@@ -3,9 +3,7 @@ using OficinaBilling.Application.Interfaces;
 
 namespace OficinaBilling.Infrastructure.Logging;
 
-// Adapter fino: a Application depende só de IAppLogger<T> (porta), não do
-// Microsoft.Extensions.Logging diretamente — mantém a camada livre de framework.
-public class AppLogger<T> : IAppLogger<T>
+public sealed class AppLogger<T> : IAppLogger<T>
 {
     private readonly ILogger<T> _logger;
 

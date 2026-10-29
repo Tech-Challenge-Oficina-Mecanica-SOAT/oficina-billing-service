@@ -3,30 +3,39 @@ using OficinaBilling.Application.Interfaces;
 
 namespace OficinaBilling.Infrastructure.ExternalServices;
 
-// SÓ PARA TESTE LOCAL (MercadoPago:UseFake=true, e apenas em Development — ver Program.cs).
-// Substitui o Mercado Pago real: cria "preferências" em memória e deixa o endpoint
-// POST /dev/mp/pagar registrar o resultado de um pagamento (approved/rejected/...), para
-// você exercitar o webhook ponta a ponta sem credenciais, ngrok nem internet.
-public class FakeMercadoPagoGateway : IMercadoPagoGateway
+/// <summary>
+/// Substituto do Mercado Pago para dev local e testes BDD (MercadoPago:UseFake=true).
+/// Para simular o webhook, use um id no formato <c>fake-{status}-{pagamentoId}</c>,
+/// ex.: <c>fake-approved-3fa85f64-...</c> ou <c>fake-rejected-3fa85f64-...</c>.
+/// </summary>
+public sealed class FakeMercadoPagoGateway : IMercadoPagoGateway
 {
-    private readonly ConcurrentDictionary<string, StatusPagamentoMp> _pagamentos = new();
-    private long _proximoPaymentId = 1_000_000;
+    private readonly ConcurrentDictionary<Guid, decimal> _cobrancas = new();
 
-    public Task<PreferenciaCriada> CriarPreferenciaAsync(decimal valor, string descricao, Guid referenciaExterna, CancellationToken ct = default)
+    public ConcurrentBag<string> Estornos { get; } = new();
+
+    public Task<CobrancaCriada> CriarCobrancaAsync(Guid pagamentoId, decimal valor, string descricao, CancellationToken ct = default)
     {
-        var preferenceId = $"fake-pref-{referenciaExterna:N}";
-        return Task.FromResult(new PreferenciaCriada(preferenceId, $"http://localhost:5001/dev/mp/checkout/{preferenceId}"));
+        _cobrancas[pagamentoId] = valor;
+        return Task.FromResult(new CobrancaCriada($"fake-pref-{pagamentoId}", $"https://sandbox.mercadopago.local/checkout/{pagamentoId}"));
     }
 
-    public Task<StatusPagamentoMp?> ConsultarPagamentoAsync(string mercadoPagoPaymentId, CancellationToken ct = default) =>
-        Task.FromResult(_pagamentos.TryGetValue(mercadoPagoPaymentId, out var p) ? p : null);
-
-    // Simula "o cliente pagou (ou tentou pagar) no checkout do MP".
-    public StatusPagamentoMp RegistrarPagamento(string? paymentId, string status, decimal valor, string externalReference)
+    public Task<PagamentoMercadoPago?> ObterPagamentoAsync(string mercadoPagoPaymentId, CancellationToken ct = default)
     {
-        var id = string.IsNullOrWhiteSpace(paymentId) ? Interlocked.Increment(ref _proximoPaymentId).ToString() : paymentId;
-        var pagamento = new StatusPagamentoMp(id, status, valor, externalReference);
-        _pagamentos[id] = pagamento;
-        return pagamento;
+        // formato: fake-{status}-{guid}
+        var partes = mercadoPagoPaymentId.Split('-', 3);
+        if (partes.Length != 3 || partes[0] != "fake"
+            || !Guid.TryParse(partes[2], out var pagamentoId)
+            || !_cobrancas.TryGetValue(pagamentoId, out var valor))
+            return Task.FromResult<PagamentoMercadoPago?>(null);
+
+        return Task.FromResult<PagamentoMercadoPago?>(
+            new PagamentoMercadoPago(mercadoPagoPaymentId, partes[1], pagamentoId.ToString(), valor));
+    }
+
+    public Task EstornarAsync(string mercadoPagoPaymentId, string idempotencyKey, CancellationToken ct = default)
+    {
+        Estornos.Add(mercadoPagoPaymentId);
+        return Task.CompletedTask;
     }
 }

@@ -1,0 +1,74 @@
+name: Deploy (reutilizável)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: deploy-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    # Variáveis/segredos esperados no GitHub Environment:
+    #   vars:    AWS_REGION, AWS_ACCOUNT_ID, EKS_CLUSTER, TF_STATE_BUCKET, OIDC_PROVIDER_ARN, OIDC_PROVIDER_URL, WEBHOOK_HOST
+    #   secrets: AWS_ROLE_ARN, RDS_ADMIN_USERNAME, RDS_ADMIN_PASSWORD
+    env:
+      ENV_NAME: ${{ inputs.environment }}
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_k8s_namespace: oficina-${{ inputs.environment }}
+      TF_VAR_oidc_provider_arn: ${{ vars.OIDC_PROVIDER_ARN }}
+      TF_VAR_oidc_provider_url: ${{ vars.OIDC_PROVIDER_URL }}
+      TF_VAR_rds_admin_username: ${{ secrets.RDS_ADMIN_USERNAME }}
+      TF_VAR_rds_admin_password: ${{ secrets.RDS_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: "Terraform — infra do Billing (banco, topics, fila, IAM)"
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=billing/${ENV_NAME}.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+          terraform apply -auto-approve -input=false
+
+      - name: Kubeconfig
+        run: aws eks update-kubeconfig --name "${{ vars.EKS_CLUSTER }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Renderizar manifestos
+        working-directory: k8s/overlays/${{ inputs.environment }}
+        run: |
+          sed -i "s/<ACCOUNT_ID>/${{ vars.AWS_ACCOUNT_ID }}/; s/<HOST_DO_ALB_${ENV_NAME}>/${{ vars.WEBHOOK_HOST }}/" kustomization.yaml
+          IMAGE="${{ inputs.image }}"
+          kustomize edit set image "ghcr.io/OWNER/oficina-billing-service=${IMAGE}"
+
+      - name: Aplicar no cluster
+        run: |
+          kubectl get namespace "oficina-${ENV_NAME}" >/dev/null 2>&1 || kubectl create namespace "oficina-${ENV_NAME}"
+          kubectl apply -k "k8s/overlays/${ENV_NAME}"
+
+      - name: Aguardar rollout
+        run: kubectl -n "oficina-${ENV_NAME}" rollout status deployment/oficina-billing-service --timeout=180s
+
+      - name: Smoke test (/health/ready dentro do cluster)
+        run: |
+          kubectl -n "oficina-${ENV_NAME}" run smoke-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- \
+            curl -fsS http://oficina-billing-service/health/ready

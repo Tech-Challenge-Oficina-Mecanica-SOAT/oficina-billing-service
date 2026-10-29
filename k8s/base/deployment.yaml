@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oficina-billing-service
+  labels:
+    app: oficina-billing-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: oficina-billing-service
+  template:
+    metadata:
+      labels:
+        app: oficina-billing-service
+    spec:
+      serviceAccountName: oficina-billing-service
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: billing
+          image: ghcr.io/OWNER/oficina-billing-service:latest # substituído pelo CI (kustomize edit set image) com a tag do commit
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: oficina-billing-config
+          env:
+            # New Relic .NET agent (instalado na imagem). A licença vem de um Secret criado fora do repositório:
+            #   kubectl -n <ns> create secret generic newrelic-license --from-literal=license-key=<KEY>
+            - name: CORECLR_ENABLE_PROFILING
+              value: "1"
+            - name: CORECLR_PROFILER
+              value: "{36032161-FFC0-4B61-B559-F6C5D41BAE5A}"
+            - name: CORECLR_NEWRELIC_HOME
+              value: /usr/local/newrelic-dotnet-agent
+            - name: CORECLR_PROFILER_PATH
+              value: /usr/local/newrelic-dotnet-agent/libNewRelicProfiler.so
+            - name: NEW_RELIC_DISTRIBUTED_TRACING_ENABLED
+              value: "true"
+            - name: NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED
+              value: "true"
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: newrelic-license
+                  key: license-key
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false

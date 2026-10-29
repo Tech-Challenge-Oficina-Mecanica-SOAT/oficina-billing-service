@@ -1,12 +1,12 @@
 namespace OficinaBilling.Application.DTOs.Responses;
 
-// Espelha o schema "Pagamento" do contrato openapi/billing.yaml.
 public sealed record PagamentoResponse(
     Guid Id,
-    Guid OsId,
     Guid OrcamentoId,
-    decimal Valor,
+    Guid OrdemServicoId,
     string Status,
-    string? MercadoPagoId,
+    decimal Valor,
     string? LinkPagamento,
-    DateTime CriadoEm);
+    string? MercadoPagoPaymentId,
+    DateTime CriadoEm,
+    DateTime? ConfirmadoEm);

@@ -1,68 +1,171 @@
-name: CI/CD - Billing Service
+name: CI/CD
 
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # OIDC com a AWS
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_VERSION: 10.0.x
+  COVERAGE_MINIMO: 80
 
 jobs:
-  build-and-test:
+  # ---------------------------------------------------------------------------
+  # Build + testes (unitários, integração com PostgreSQL real, BDD) + cobertura + SonarCloud
+  # ---------------------------------------------------------------------------
+  build-test-quality:
+    name: build-test-quality
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Sonar precisa do histórico completo
+
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
-      - run: dotnet restore
-      - run: dotnet build --no-restore -c Release
-      - run: dotnet test --no-build -c Release --collect:"XPlat Code Coverage"
-      # TODO: publicar cobertura no SonarQube (requisito da Fase 4, meta >=80%)
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-  build-docker:
-    if: github.ref == 'refs/heads/main'
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/setup-java@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          distribution: temurin
+          java-version: 17
 
-  deploy-terraform:
-    if: github.ref == 'refs/heads/main'
-    needs: build-docker
+      - name: Instalar ferramentas
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: SonarCloud — begin
+        if: env.SONAR_TOKEN != ''
+        run: |
+          dotnet sonarscanner begin \
+            /k:"${{ vars.SONAR_PROJECT_KEY }}" \
+            /o:"${{ vars.SONAR_ORGANIZATION }}" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
+            /d:sonar.coverage.exclusions="**/Program.cs,**/Migrations/**,**/obj/**,**/*.g.cs,**/MercadoPagoGateway.cs,**/SnsEventPublisher.cs,**/SqsConsumerService.cs,**/SecretsLoader.cs,tests/**" \
+            /d:sonar.qualitygate.wait=true
+
+      - name: Build
+        run: dotnet build OficinaBilling.sln -c Release
+
+      - name: Testes + cobertura (Docker disponível no runner para o Testcontainers)
+        run: >
+          dotnet test OficinaBilling.sln -c Release --no-build
+          --settings coverage.runsettings
+          --collect:"XPlat Code Coverage"
+          --results-directory ./TestResults
+          --logger "trx;LogFileName=resultado.trx"
+
+      - name: Relatório de cobertura
+        if: always()
+        run: >
+          reportgenerator
+          -reports:"TestResults/**/coverage.opencover.xml"
+          -targetdir:coverage-report
+          -reporttypes:"TextSummary;MarkdownSummaryGithub;HtmlInline"
+          -assemblyfilters:"+OficinaBilling.*;-*Tests*"
+          -filefilters:"-*Program.cs;-*Migrations*;-*obj*;-*.g.cs;-*MercadoPagoGateway.cs;-*SnsEventPublisher.cs;-*SqsConsumerService.cs;-*SecretsLoader.cs"
+
+      - name: Resumo da cobertura no job
+        if: always()
+        run: cat coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Gate de cobertura (>= ${{ env.COVERAGE_MINIMO }}%)
+        run: |
+          cat coverage-report/Summary.txt
+          cobertura=$(grep -oP 'Line coverage: \K[0-9.]+' coverage-report/Summary.txt | head -1)
+          echo "Cobertura de linhas: ${cobertura}%"
+          awk -v c="$cobertura" -v m="$COVERAGE_MINIMO" 'BEGIN { exit (c+0 >= m+0) ? 0 : 1 }' \
+            || { echo "::error::Cobertura ${cobertura}% abaixo do mínimo de ${COVERAGE_MINIMO}%"; exit 1; }
+
+      - name: SonarCloud — end (aguarda o Quality Gate)
+        if: env.SONAR_TOKEN != ''
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
+      - name: Publicar relatório de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report
+
+  # ---------------------------------------------------------------------------
+  terraform-validate:
+    name: terraform-validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - working-directory: terraform
-        run: |
-          terraform init
-          terraform apply -auto-approve -var="environment=dev"
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - run: terraform -chdir=terraform init -backend=false
+      - run: terraform -chdir=terraform validate
 
-  deploy-k8s:
-    if: github.ref == 'refs/heads/main'
-    needs: deploy-terraform
+  # ---------------------------------------------------------------------------
+  # Imagem: em PR só valida o build; em main publica no GHCR com a tag do commit
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: docker-build
     runs-on: ubuntu-latest
+    needs: build-test-quality
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v4
-      # TODO: configurar kubectl contra o cluster EKS (aws eks update-kubeconfig)
-      - run: |
-          kubectl apply -f k8s/configmap.yaml
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/hpa.yaml
-          kubectl rollout restart deployment/oficina-billing-service -n oficina
+
+      - id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # Deploy: homolog automático; prod só depois de homolog e com aprovação
+  # (configure "Required reviewers" no GitHub Environment "prod").
+  # ---------------------------------------------------------------------------
+  deploy-homolog:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [docker-build, terraform-validate]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: homolog
+      image: ${{ needs.docker-build.outputs.image }}
+    secrets: inherit
+
+  deploy-prod:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [docker-build, deploy-homolog]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      image: ${{ needs.docker-build.outputs.image }}
+    secrets: inherit
