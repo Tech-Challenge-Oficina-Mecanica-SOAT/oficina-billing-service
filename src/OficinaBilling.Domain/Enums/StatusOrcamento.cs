@@ -1,8 +1,3 @@
 namespace OficinaBilling.Domain.Enums;
 
-public enum StatusOrcamento
-{
-    Gerado,
-    Aprovado,
-    Recusado
-}
+public enum StatusOrcamento { Gerado, Aprovado, Recusado, Expirado, Cancelado }

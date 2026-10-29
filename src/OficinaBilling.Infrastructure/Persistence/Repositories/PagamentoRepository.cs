@@ -13,12 +13,15 @@ public class PagamentoRepository : IPagamentoRepository
     public Task<Pagamento?> ObterPorIdAsync(Guid id, CancellationToken ct = default) =>
         _context.Pagamentos.FirstOrDefaultAsync(p => p.Id == id, ct);
 
-    public Task<Pagamento?> ObterPorMercadoPagoIdAsync(string mercadoPagoPaymentId, CancellationToken ct = default) =>
-        _context.Pagamentos.FirstOrDefaultAsync(p => p.MercadoPagoPaymentId == mercadoPagoPaymentId, ct);
+    public Task<Pagamento?> ObterPorOsIdAsync(Guid osId, CancellationToken ct = default) =>
+        _context.Pagamentos.FirstOrDefaultAsync(p => p.OsId == osId, ct);
+
+    public Task<Pagamento?> ObterPorPreferenceIdAsync(string preferenceId, CancellationToken ct = default) =>
+        _context.Pagamentos.FirstOrDefaultAsync(p => p.PreferenceId == preferenceId, ct);
+
+    public Task<Pagamento?> ObterPorOrcamentoIdAsync(Guid orcamentoId, CancellationToken ct = default) =>
+        _context.Pagamentos.FirstOrDefaultAsync(p => p.OrcamentoId == orcamentoId, ct);
 
     public async Task AdicionarAsync(Pagamento pagamento, CancellationToken ct = default) =>
         await _context.Pagamentos.AddAsync(pagamento, ct);
-
-    public Task SalvarAlteracoesAsync(CancellationToken ct = default) =>
-        _context.SaveChangesAsync(ct);
 }
