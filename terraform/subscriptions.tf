@@ -28,6 +28,7 @@ resource "aws_sqs_queue" "billing_queue" {
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.billing_dlq.arn
     maxReceiveCount     = 5
+<<<<<<< Updated upstream
   })
 }
 
@@ -36,6 +37,8 @@ resource "aws_sqs_queue_redrive_allow_policy" "billing_dlq" {
   redrive_allow_policy = jsonencode({
     redrivePermission = "byQueue"
     sourceQueueArns   = [aws_sqs_queue.billing_queue.arn]
+=======
+>>>>>>> Stashed changes
   })
 }
 
@@ -57,10 +60,34 @@ resource "aws_sqs_queue_policy" "billing_queue_policy" {
   })
 }
 
+<<<<<<< Updated upstream
 # Sem raw_message_delivery: o consumidor lê o TopicArn do envelope SNS para rotear a mensagem.
 resource "aws_sns_topic_subscription" "consumed" {
   for_each  = data.aws_ssm_parameter.consumed_topic_arn
   topic_arn = each.value.value
   protocol  = "sqs"
   endpoint  = aws_sqs_queue.billing_queue.arn
+=======
+# raw_message_delivery = true: a mensagem que cai na fila é o envelope puro do
+# evento (sem o wrapper de notificação do SNS) — é isso que o BillingQueueConsumer espera.
+resource "aws_sns_topic_subscription" "diagnostico_concluido" {
+  topic_arn            = data.aws_ssm_parameter.diagnostico_concluido_arn.value
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.billing_queue.arn
+  raw_message_delivery = true
+}
+
+resource "aws_sns_topic_subscription" "execucao_finalizada" {
+  topic_arn            = data.aws_ssm_parameter.execucao_finalizada_arn.value
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.billing_queue.arn
+  raw_message_delivery = true
+}
+
+resource "aws_sns_topic_subscription" "os_cancelada" {
+  topic_arn            = data.aws_ssm_parameter.os_cancelada_arn.value
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.billing_queue.arn
+  raw_message_delivery = true
+>>>>>>> Stashed changes
 }
