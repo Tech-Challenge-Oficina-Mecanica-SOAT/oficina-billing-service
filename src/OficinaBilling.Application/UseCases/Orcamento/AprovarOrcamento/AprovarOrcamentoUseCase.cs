@@ -28,6 +28,12 @@ public class AprovarOrcamentoUseCase
         if (orcamento.Status == StatusOrcamento.Aprovado)
             return Result<OrcamentoResponse>.Ok(orcamento.ParaResponse()); // idempotente: não republica
 
+        if (orcamento.ExpirarSeVencido())
+        {
+            await _orcamentoRepository.SalvarAlteracoesAsync(ct);
+            return Result<OrcamentoResponse>.Falha("O orçamento expirou e não pode mais ser aprovado.", TipoErro.Conflito);
+        }
+
         try
         {
             orcamento.Aprovar();

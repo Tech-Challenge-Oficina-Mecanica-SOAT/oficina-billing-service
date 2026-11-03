@@ -43,7 +43,7 @@ flowchart LR
 ### Fluxo completo de uma OS
 
 1. `diagnostico.concluido` → busca preços no Cadastros → cria **Orçamento** (`Gerado`) + evento `orcamento.gerado`.
-2. Cliente `POST /orcamentos/{id}/aprovar` → `orcamento.aprovado` (dispara a execução) — ou `/recusar` → `orcamento.recusado` (compensação).
+2. Cliente `POST /orcamentos/{id}/aprovar` (204) → `orcamento.aprovado` (dispara a execução) — ou `/recusar` (204; motivo opcional persistido) → `orcamento.recusado` (compensação). O orçamento expira sete dias após ser gerado; um processo periódico consolida a expiração, e a API também a verifica antes de aprovar/consultar.
 3. `execucao.finalizada` → cria a **preferência** no Mercado Pago e o **Pagamento** (`Pendente`); `GET /pagamentos/{osId}` devolve o link.
 4. Cliente paga no Mercado Pago → webhook → Billing **consulta o pagamento na API do MP**, confere o valor → `pagamento.confirmado` / `pagamento.recusado`.
 5. `os.cancelada` (compensação) → cancela orçamento e cobrança pendente; **estorna** se já estava pago.
@@ -70,11 +70,13 @@ Swagger UI em `/swagger` (`Swagger__Enabled=true`) · contrato em [`docs/openapi
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/orcamentos/{osId}` | Orçamento da OS |
-| POST | `/orcamentos/{orcamentoId}/aprovar` | Aprova (idempotente) → `orcamento.aprovado` |
-| POST | `/orcamentos/{orcamentoId}/recusar` | Recusa (idempotente) → `orcamento.recusado` |
+| POST | `/orcamentos/{orcamentoId}/aprovar` | Aprova (204, idempotente) → `orcamento.aprovado` |
+| POST | `/orcamentos/{orcamentoId}/recusar` | Recusa (204, motivo opcional no JSON) → `orcamento.recusado` |
 | GET | `/pagamentos/{osId}` | Pagamento da OS (com `linkPagamento`) |
 | POST | `/pagamentos/webhook/mercado-pago` | Webhook do MP (idempotente, assinatura validada) |
 | GET | `/health` · `/health/ready` | Liveness · readiness (banco) |
+
+O contrato REST segue `fase4-pacote/contratos/openapi/billing.yaml`; a cópia executável/documentada está em [`docs/openapi.yaml`](docs/openapi.yaml). As respostas de orçamento usam `osId`, `pecas`, `servicos`, `validadeAte` e `geradoEm`; itens de bancos antigos sem ID de catálogo aparecem em `itensLegados`. Pagamentos usam `osId` e `mercadoPagoId` (além do link do checkout). `Cancelado` e `Estornado` permanecem expostos para representar a compensação do Saga.
 
 Eventos publicados/consumidos e formato do envelope: [`docs/events.md`](docs/events.md).
 
@@ -89,7 +91,8 @@ make up-aws                       # + LocalStack: outbox publica no SNS e o cons
 Com o **Mercado Pago fake** dá para simular um webhook sem rede: o `id` segue o formato `fake-{status}-{pagamentoId}`:
 
 ```bash
-curl -X POST "localhost:5001/pagamentos/webhook/mercado-pago?data.id=fake-approved-<pagamentoId>&type=payment"
+curl -X POST -H "X-Idempotency-Key: teste-approved-<pagamentoId>" \
+  "localhost:5001/pagamentos/webhook/mercado-pago?data.id=fake-approved-<pagamentoId>&type=payment"
 ```
 
 > O schema é criado/evoluído exclusivamente pelas migrations versionadas, aplicadas no startup quando `Database:MigrateOnStartup=true`. Não use `EnsureCreated` em ambientes persistentes.
@@ -127,10 +130,11 @@ make coverage    # gera coverage-report/index.html e imprime o resumo
 ```
 
 - **Passo a passo para testes manuais**, incluindo como publicar eventos via SNS no LocalStack, validar o fluxo completo, observar eventos publicados, testar o webhook fake/Sandbox e consultar a DLQ: [docs/testing-guide.md](docs/testing-guide.md).
-- **Gate no CI:** o job `build-test-quality` falha se a cobertura de linhas ficar abaixo de **80 %** e aguarda o **Quality Gate do SonarCloud**.
+- **Gate no CI:** o job `build-test-quality` falha se a cobertura de linhas ficar abaixo de **80 %**. A análise SonarCloud só é executada quando `SONAR_TOKEN` está configurado; sem ele, o CI não comprova o Quality Gate do Sonar.
 - Ficam fora da cobertura apenas código gerado pelo OpenAPI, composição da aplicação, migrations e adapters que só rodam contra serviços reais (listados em `coverage.runsettings`).
-- **Evidências:** o relatório HTML é publicado como artefato `coverage-report` em cada execução do CI.
-  <!-- Após o primeiro CI verde, cole aqui: badge do SonarCloud + print do coverage-report + link da execução -->
+- **Evidências:** [ver execuções do CI](https://github.com/Tech-Challenge-Oficina-Mecanica-SOAT/oficina-billing-service/actions/workflows/ci.yml) · [última execução consultada](https://github.com/Tech-Challenge-Oficina-Mecanica-SOAT/oficina-billing-service/actions/runs/40947887959) · o artefato `coverage-report` está disponível nessa execução.
+  - Essa execução publicou o relatório, mas **não terminou verde**: o deploy de homologação falhou porque `AWS_REGION` não estava configurada no GitHub Environment. Ela corresponde ao commit `51af277` e é anterior às alterações locais atuais; não deve ser apresentada como validação final delas.
+  - Após enviar as alterações atuais e obter uma execução bem-sucedida, atualize este item para apontar para essa nova execução. O relatório HTML pode ser baixado em **Actions → execução → Artifacts** e tem retenção limitada pelo GitHub.
 
 ## CI/CD (`.github/workflows`)
 

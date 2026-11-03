@@ -83,6 +83,8 @@ public static class ServiceCollectionExtensions
         // ---- Mensageria ----
         services.AddSingleton<OutboxProcessor>();
         services.AddHostedService(sp => sp.GetRequiredService<OutboxProcessor>());
+        services.AddSingleton<OrcamentoExpirationService>();
+        services.AddHostedService(sp => sp.GetRequiredService<OrcamentoExpirationService>());
 
         var messaging = config.GetSection(MessagingOptions.Secao).Get<MessagingOptions>() ?? new MessagingOptions();
         if (messaging.Provider.Equals("Aws", StringComparison.OrdinalIgnoreCase))

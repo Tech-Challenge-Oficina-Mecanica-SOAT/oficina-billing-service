@@ -2,10 +2,13 @@ using FluentAssertions;
 using OficinaBilling.Application.Common;
 using OficinaBilling.Application.DTOs.Requests;
 using OficinaBilling.Application.Events;
+using OficinaBilling.Application.Mappers;
 using OficinaBilling.Application.UseCases.Orcamento.AprovarOrcamento;
 using OficinaBilling.Application.UseCases.Orcamento.ConsultarOrcamento;
 using OficinaBilling.Application.UseCases.Orcamento.GerarOrcamento;
 using OficinaBilling.Application.UseCases.Orcamento.RecusarOrcamento;
+using OficinaBilling.Domain.Entities;
+using OficinaBilling.Domain.ValueObjects;
 using OficinaBilling.UnitTests.Support;
 
 namespace OficinaBilling.UnitTests.UseCases;
@@ -39,7 +42,8 @@ public class OrcamentoUseCasesTests
 
         r.Sucesso.Should().BeTrue();
         r.Valor!.ValorTotal.Should().Be(200m);
-        r.Valor.Itens.Should().HaveCount(2);
+        r.Valor.Pecas.Should().ContainSingle();
+        r.Valor.Servicos.Should().ContainSingle();
         _outbox.Eventos.Should().ContainSingle();
         EventCatalog.TopicoDe(_outbox.Eventos[0]).Should().Be("orcamento.gerado");
         _repo.Salvamentos.Should().Be(1);
@@ -163,8 +167,23 @@ public class OrcamentoUseCasesTests
         var ok = await consultar.ExecutarAsync(os);
         var nao = await consultar.ExecutarAsync(Guid.NewGuid());
 
-        ok.Valor!.OrdemServicoId.Should().Be(os);
-        ok.Valor.Itens.Should().HaveCount(2);
+        ok.Valor!.OsId.Should().Be(os);
+        ok.Valor.Pecas.Should().ContainSingle();
+        ok.Valor.Servicos.Should().ContainSingle();
         nao.Tipo.Should().Be(TipoErro.NaoEncontrado);
+    }
+
+    [Fact]
+    public void Mapper_preserva_itens_historicos_sem_id_de_catalogo()
+    {
+        var orcamento = Orcamento.Gerar(
+            Guid.NewGuid(),
+            new[] { new ItemOrcamento("Item histórico", 1, new Dinheiro(25m)) });
+
+        var response = orcamento.ParaResponse();
+
+        response.Pecas.Should().BeEmpty();
+        response.Servicos.Should().BeEmpty();
+        response.ItensLegados.Should().ContainSingle().Which.Descricao.Should().Be("Item histórico");
     }
 }

@@ -16,25 +16,29 @@ public class Orcamento : IAggregateRoot
     public StatusOrcamento Status { get; private set; }
     public Dinheiro ValorTotal { get; private set; } = Dinheiro.Zero;
     public DateTime CriadoEm { get; private set; }
+    public DateTime ValidadeAte { get; private set; }
     public DateTime? AprovadoEm { get; private set; }
     public DateTime? CanceladoEm { get; private set; }
+    public string? MotivoRecusa { get; private set; }
     public IReadOnlyCollection<ItemOrcamento> Itens => _itens.AsReadOnly();
     public IReadOnlyCollection<object> DomainEvents => _domainEvents.AsReadOnly();
 
     private Orcamento() { } // EF Core
 
-    public static Orcamento Gerar(Guid ordemServicoId, IEnumerable<ItemOrcamento> itens)
+    public static Orcamento Gerar(Guid ordemServicoId, IEnumerable<ItemOrcamento> itens, DateTime? agora = null)
     {
         var lista = itens.ToList();
         if (lista.Count == 0)
             throw new ArgumentException("Um orçamento precisa de ao menos um item.", nameof(itens));
 
+        var criadoEm = agora ?? DateTime.UtcNow;
         var orcamento = new Orcamento
         {
             Id = Guid.NewGuid(),
             OrdemServicoId = ordemServicoId,
             Status = StatusOrcamento.Gerado,
-            CriadoEm = DateTime.UtcNow
+            CriadoEm = criadoEm,
+            ValidadeAte = criadoEm.AddDays(7)
         };
 
         orcamento._itens.AddRange(lista);
@@ -54,13 +58,23 @@ public class Orcamento : IAggregateRoot
         _domainEvents.Add(new OrcamentoAprovadoEvent(Id, OrdemServicoId));
     }
 
-    public void Recusar()
+    public void Recusar(string? motivo = null)
     {
         if (Status != StatusOrcamento.Gerado)
             throw new InvalidOperationException("Só é possível recusar um orçamento com status 'Gerado'.");
 
         Status = StatusOrcamento.Recusado;
+        MotivoRecusa = string.IsNullOrWhiteSpace(motivo) ? null : motivo.Trim();
         _domainEvents.Add(new OrcamentoRecusadoEvent(Id, OrdemServicoId));
+    }
+
+    public bool ExpirarSeVencido(DateTime? agora = null)
+    {
+        if (Status != StatusOrcamento.Gerado || (agora ?? DateTime.UtcNow) < ValidadeAte)
+            return false;
+
+        Status = StatusOrcamento.Expirado;
+        return true;
     }
 
     /// <summary>
@@ -82,5 +96,7 @@ public class Orcamento : IAggregateRoot
 
 public sealed record ItemOrcamento(string Descricao, int Quantidade, Dinheiro PrecoUnitario)
 {
+    public Guid? PecaId { get; init; }
+    public Guid? ServicoId { get; init; }
     public Dinheiro Subtotal => new(PrecoUnitario.Valor * Quantidade);
 }

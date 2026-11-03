@@ -15,6 +15,7 @@ public class OrcamentoConfiguration : IEntityTypeConfiguration<Orcamento>
         b.Property(o => o.Id).ValueGeneratedNever();
         b.Property(o => o.Status).HasConversion<string>().HasMaxLength(20);
         b.Property(o => o.ValorTotal).HasConversion(d => d.Valor, v => new Dinheiro(v)).HasColumnType("numeric(18,2)");
+        b.Property(o => o.MotivoRecusa).HasColumnType("text");
 
         // 1 orçamento por OS: garante idempotência mesmo com mensagens SQS concorrentes.
         b.HasIndex(o => o.OrdemServicoId).IsUnique();
@@ -31,6 +32,8 @@ public class OrcamentoConfiguration : IEntityTypeConfiguration<Orcamento>
             ib.Property<int>("Id");
             ib.HasKey("Id");
             ib.Property(i => i.Descricao).HasMaxLength(200);
+            ib.Property(i => i.PecaId);
+            ib.Property(i => i.ServicoId);
             ib.Property(i => i.PrecoUnitario).HasConversion(d => d.Valor, v => new Dinheiro(v)).HasColumnType("numeric(18,2)");
             ib.Ignore(i => i.Subtotal);
         });

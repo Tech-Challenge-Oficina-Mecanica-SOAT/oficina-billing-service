@@ -2,11 +2,10 @@ namespace OficinaBilling.Application.DTOs.Responses;
 
 public sealed record PagamentoResponse(
     Guid Id,
+    Guid OsId,
     Guid OrcamentoId,
-    Guid OrdemServicoId,
-    string Status,
     decimal Valor,
+    string Status,
+    string? MercadoPagoId,
     string? LinkPagamento,
-    string? MercadoPagoPaymentId,
-    DateTime CriadoEm,
-    DateTime? ConfirmadoEm);
+    DateTime CriadoEm);

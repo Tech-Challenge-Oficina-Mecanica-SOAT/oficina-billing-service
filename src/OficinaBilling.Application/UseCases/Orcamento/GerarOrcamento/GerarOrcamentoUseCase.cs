@@ -60,7 +60,10 @@ public class GerarOrcamentoUseCase
             if (preco is null)
                 return Result<OrcamentoResponse>.Falha($"Peça {peca.Id} não encontrada no Cadastros Service.", TipoErro.NaoEncontrado);
 
-            itens.Add(new ItemOrcamento(preco.Descricao, peca.Quantidade, new Dinheiro(preco.PrecoUnitario)));
+            itens.Add(new ItemOrcamento(preco.Descricao, peca.Quantidade, new Dinheiro(preco.PrecoUnitario))
+            {
+                PecaId = peca.Id
+            });
         }
 
         foreach (var servico in servicos)
@@ -69,7 +72,10 @@ public class GerarOrcamentoUseCase
             if (preco is null)
                 return Result<OrcamentoResponse>.Falha($"Serviço {servico.Id} não encontrado no Cadastros Service.", TipoErro.NaoEncontrado);
 
-            itens.Add(new ItemOrcamento(preco.Descricao, servico.Quantidade, new Dinheiro(preco.PrecoUnitario)));
+            itens.Add(new ItemOrcamento(preco.Descricao, servico.Quantidade, new Dinheiro(preco.PrecoUnitario))
+            {
+                ServicoId = servico.Id
+            });
         }
 
         var orcamento = Domain.Entities.Orcamento.Gerar(request.OrdemServicoId, itens);

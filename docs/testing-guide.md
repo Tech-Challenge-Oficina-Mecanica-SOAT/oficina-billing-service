@@ -149,7 +149,7 @@ curl -i -H 'X-Correlation-Id: teste-billing-123' \
 curl -i "http://localhost:5001/orcamentos/$OS_ID"
 ```
 
-Esperado: resposta `200`, o mesmo `X-Correlation-Id` na resposta, orçamento com `status: "Aprovado"` e evento `orcamento.aprovado` na fila de observação com `correlationId: "teste-billing-123"`. Enviar a mesma aprovação novamente deve continuar retornando sucesso sem publicar uma segunda aprovação.
+Esperado: resposta `204`, o mesmo `X-Correlation-Id` na resposta e evento `orcamento.aprovado` na fila de observação com `correlationId: "teste-billing-123"`. Enviar a mesma aprovação novamente deve continuar retornando sucesso sem publicar uma segunda aprovação.
 
 ### 4.3 Publicar `execucao.finalizada`
 
@@ -168,7 +168,7 @@ docker compose logs --tail=100 billing-api
 curl -i "http://localhost:5001/pagamentos/$OS_ID"
 ```
 
-Esperado: pagamento com `status: "Pendente"`, `valor: 150` e `linkPagamento` de teste. Copie o `id` do pagamento da resposta — **não** use o ID da OS nem o `MercadoPagoPaymentId`.
+Esperado: pagamento com `status: "Pendente"`, `valor: 150` e `linkPagamento` de teste. Copie o `id` do pagamento da resposta — **não** use o ID da OS nem o `mercadoPagoId` (ainda nulo até a confirmação).
 
 ### 4.4 Simular aprovação do pagamento (Mercado Pago fake)
 
@@ -178,6 +178,7 @@ Com `MP_USE_FAKE=true` (padrão), envie o webhook usando `fake-approved-` seguid
 PAGAMENTO_ID=<id-do-pagamento>
 
 curl -i -X POST \
+  -H "X-Idempotency-Key: teste-approved-$PAGAMENTO_ID" \
   "http://localhost:5001/pagamentos/webhook/mercado-pago?data.id=fake-approved-$PAGAMENTO_ID&type=payment"
 ```
 
@@ -202,7 +203,15 @@ curl -i -X POST "http://localhost:5001/orcamentos/$ORCAMENTO_ID/recusar"
 curl -i "http://localhost:5001/orcamentos/$OS_ID"
 ```
 
-Esperado: orçamento `Recusado` e evento `orcamento.recusado`. Não é necessário enviar `execucao.finalizada` nesse cenário.
+Também é possível persistir o motivo enviado pelo cliente:
+
+```bash
+curl -i -X POST -H 'Content-Type: application/json' \
+  --data '{"motivo":"Não aprovou o valor"}' \
+  "http://localhost:5001/orcamentos/$ORCAMENTO_ID/recusar"
+```
+
+Esperado: resposta `204`, orçamento `Recusado` e evento `orcamento.recusado`. Não é necessário enviar `execucao.finalizada` nesse cenário.
 
 ### Recusar pagamento
 
@@ -210,6 +219,7 @@ Gere e aprove outro orçamento, publique `execucao.finalizada` e obtenha o ID do
 
 ```bash
 curl -i -X POST \
+  -H "X-Idempotency-Key: teste-rejected-$PAGAMENTO_ID" \
   "http://localhost:5001/pagamentos/webhook/mercado-pago?data.id=fake-rejected-$PAGAMENTO_ID&type=payment"
 curl -i "http://localhost:5001/pagamentos/$OS_ID"
 ```
@@ -255,14 +265,17 @@ curl -i -X POST http://localhost:5001/orcamentos/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaa
 
 # Tipo de webhook não relacionado a pagamento: 200, ignorado
 curl -i -X POST \
+  -H 'X-Idempotency-Key: smoke-merchant-order' \
   'http://localhost:5001/pagamentos/webhook/mercado-pago?type=merchant_order&id=teste'
 
 # Tipo payment sem ID: 400
 curl -i -X POST \
+  -H 'X-Idempotency-Key: smoke-missing-id' \
   'http://localhost:5001/pagamentos/webhook/mercado-pago?type=payment'
 
 # Pagamento inexistente no gateway fake: 200 com processado=false
 curl -i -X POST \
+  -H 'X-Idempotency-Key: smoke-unknown-payment' \
   'http://localhost:5001/pagamentos/webhook/mercado-pago?data.id=fake-approved-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&type=payment'
 ```
 
