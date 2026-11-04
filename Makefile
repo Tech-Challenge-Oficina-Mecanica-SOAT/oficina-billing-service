@@ -1,4 +1,4 @@
-.PHONY: up up-aws down build test coverage migration migrate
+.PHONY: up up-aws down k8s-local-up k8s-local-down build test coverage migration migrate
 
 up:            ## API + Postgres + WireMock (MP fake, eventos só logados)
 	docker compose up -d --build
@@ -9,6 +9,12 @@ up-aws:        ## idem + LocalStack (SNS/SQS/SSM): outbox publica e o consumidor
 
 down:
 	docker compose --profile aws down
+
+k8s-local-up:  ## cria/atualiza o cluster Kind local e implanta Billing + PostgreSQL
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\deploy-local-k8s.ps1" -Action Up
+
+k8s-local-down: ## remove somente o cluster Kind local do Billing e seus dados efêmeros
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File "scripts\deploy-local-k8s.ps1" -Action Down
 
 build:
 	dotnet build
