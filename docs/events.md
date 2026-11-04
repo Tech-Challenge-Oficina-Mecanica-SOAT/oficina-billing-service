@@ -17,7 +17,7 @@ Todos os eventos trafegam em SNS→SQS (ADR 0005). Nomes de tópico: `oficina-{e
 }
 ```
 
-`correlationId` também é enviado como MessageAttribute SNS. `data.osId` segue o contrato compartilhado; a API REST continua expondo `ordemServicoId`.
+`correlationId` também é enviado como MessageAttribute SNS. `data.osId` segue o contrato compartilhado; a API REST também expõe `osId`.
 
 ## Eventos que o Billing PUBLICA
 

@@ -1,10 +1,12 @@
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using OficinaBilling.Application.Common;
 using OficinaBilling.Application.DTOs.Responses;
 using OficinaBilling.Application.Messaging;
+using OficinaBilling.Infrastructure.Persistence;
 using OficinaBilling.Infrastructure.Messaging;
 
 namespace OficinaBilling.IntegrationTests.Support;
@@ -75,11 +77,33 @@ public sealed class BillingDriver
     public async Task<PagamentoResponse> ObterPagamentoAsync(Guid os) =>
         (await _http.GetFromJsonAsync<PagamentoResponse>($"/pagamentos/{os}", JsonDefaults.Options))!;
 
+    public async Task<string?> MotivoRecusaAsync(Guid orcamentoId)
+    {
+        using var scope = _host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+        return await db.Orcamentos.Where(o => o.Id == orcamentoId).Select(o => o.MotivoRecusa).SingleAsync();
+    }
+
+    public async Task DefinirOrcamentoExpiradoAsync(Guid orcamentoId)
+    {
+        using var scope = _host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+        await db.Orcamentos
+            .Where(o => o.Id == orcamentoId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(o => o.ValidadeAte, DateTime.UtcNow.AddSeconds(-1)));
+    }
+
+    public Task<int> ExpirarOrcamentosVencidosAsync() =>
+        _host.Services.GetRequiredService<OrcamentoExpirationService>().ExpirarVencidosAsync();
+
     public Task<HttpResponseMessage> ConsultarOrcamentoAsync(Guid os) => _http.GetAsync($"/orcamentos/{os}");
 
     public Task<HttpResponseMessage> AprovarAsync(Guid orcamentoId) => _http.PostAsync($"/orcamentos/{orcamentoId}/aprovar", null);
 
-    public Task<HttpResponseMessage> RecusarAsync(Guid orcamentoId) => _http.PostAsync($"/orcamentos/{orcamentoId}/recusar", null);
+    public Task<HttpResponseMessage> RecusarAsync(Guid orcamentoId, string? motivo = null) =>
+        motivo is null
+            ? _http.PostAsync($"/orcamentos/{orcamentoId}/recusar", null)
+            : _http.PostAsJsonAsync($"/orcamentos/{orcamentoId}/recusar", new { motivo });
 
     public Task<HttpResponseMessage> HealthAsync(string caminho) => _http.GetAsync(caminho);
 
@@ -94,9 +118,15 @@ public sealed class BillingDriver
         };
         if (idempotencyKey is not null)
             request.Headers.Add("X-Idempotency-Key", idempotencyKey);
+        request.Headers.Add("x-request-id", idempotencyKey ?? Guid.NewGuid().ToString());
         return _http.SendAsync(request);
     }
 
     public Task<HttpResponseMessage> WebhookSemIdAsync() =>
         _http.PostAsync("/pagamentos/webhook/mercado-pago", new StringContent("{\"type\":\"payment\"}", Encoding.UTF8, "application/json"));
+
+    public Task<HttpResponseMessage> WebhookSemIdempotencyKeyAsync() =>
+        _http.PostAsync(
+            "/pagamentos/webhook/mercado-pago?data.id=fake-approved-00000000-0000-0000-0000-000000000000&type=payment",
+            new StringContent("{\"type\":\"payment\"}", Encoding.UTF8, "application/json"));
 }

@@ -5,5 +5,6 @@ public enum StatusOrcamento
     Gerado,
     Aprovado,
     Recusado,
-    Cancelado
+    Cancelado,
+    Expirado
 }

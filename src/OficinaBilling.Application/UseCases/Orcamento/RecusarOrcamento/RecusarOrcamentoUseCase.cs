@@ -19,7 +19,7 @@ public class RecusarOrcamentoUseCase
         _outbox = outbox;
     }
 
-    public async Task<Result<OrcamentoResponse>> ExecutarAsync(Guid orcamentoId, CancellationToken ct = default)
+    public async Task<Result<OrcamentoResponse>> ExecutarAsync(Guid orcamentoId, CancellationToken ct = default, string? motivo = null)
     {
         var orcamento = await _orcamentoRepository.ObterPorIdAsync(orcamentoId, ct);
         if (orcamento is null)
@@ -28,9 +28,15 @@ public class RecusarOrcamentoUseCase
         if (orcamento.Status == StatusOrcamento.Recusado)
             return Result<OrcamentoResponse>.Ok(orcamento.ParaResponse()); // idempotente
 
+        if (orcamento.ExpirarSeVencido())
+        {
+            await _orcamentoRepository.SalvarAlteracoesAsync(ct);
+            return Result<OrcamentoResponse>.Falha("O orçamento expirou e não pode mais ser recusado.", TipoErro.Conflito);
+        }
+
         try
         {
-            orcamento.Recusar();
+            orcamento.Recusar(motivo);
         }
         catch (InvalidOperationException ex)
         {

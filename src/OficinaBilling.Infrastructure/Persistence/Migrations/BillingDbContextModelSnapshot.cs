@@ -36,6 +36,9 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CriadoEm")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("MotivoRecusa")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("OrdemServicoId")
                         .HasColumnType("uuid");
 
@@ -43,6 +46,9 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("ValidadeAte")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("ValorTotal")
                         .HasColumnType("numeric(18,2)");
@@ -185,11 +191,17 @@ namespace OficinaBilling.Infrastructure.Persistence.Migrations
                             b1.Property<Guid>("OrcamentoId")
                                 .HasColumnType("uuid");
 
+                            b1.Property<Guid?>("PecaId")
+                                .HasColumnType("uuid");
+
                             b1.Property<decimal>("PrecoUnitario")
                                 .HasColumnType("numeric(18,2)");
 
                             b1.Property<int>("Quantidade")
                                 .HasColumnType("integer");
+
+                            b1.Property<Guid?>("ServicoId")
+                                .HasColumnType("uuid");
 
                             b1.HasKey("Id");
 

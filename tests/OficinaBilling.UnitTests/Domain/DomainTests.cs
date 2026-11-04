@@ -73,8 +73,8 @@ public class OrcamentoTests
         var o = Novo();
         o.Aprovar();
 
-        FluentActions.Invoking(o.Aprovar).Should().Throw<InvalidOperationException>();
-        FluentActions.Invoking(o.Recusar).Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => o.Aprovar()).Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => o.Recusar()).Should().Throw<InvalidOperationException>();
     }
 
     [Theory]
@@ -99,6 +99,29 @@ public class OrcamentoTests
 
         o.Cancelar().Should().BeFalse();
         o.Status.Should().Be(StatusOrcamento.Recusado);
+    }
+
+    [Fact]
+    public void Recusar_persiste_motivo_normalizado()
+    {
+        var o = Novo();
+
+        o.Recusar("  orçamento acima do esperado ");
+
+        o.MotivoRecusa.Should().Be("orçamento acima do esperado");
+    }
+
+    [Fact]
+    public void Orcamento_expira_apos_sete_dias_e_nao_pode_ser_aprovado()
+    {
+        var geradoEm = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+        var o = Orcamento.Gerar(Guid.NewGuid(), new[] { new ItemOrcamento("Filtro", 1, new Dinheiro(50)) }, geradoEm);
+
+        o.ValidadeAte.Should().Be(geradoEm.AddDays(7));
+        o.ExpirarSeVencido(o.ValidadeAte.AddTicks(-1)).Should().BeFalse();
+        o.ExpirarSeVencido(o.ValidadeAte).Should().BeTrue();
+        o.Status.Should().Be(StatusOrcamento.Expirado);
+        FluentActions.Invoking(o.Aprovar).Should().Throw<InvalidOperationException>();
     }
 }
 

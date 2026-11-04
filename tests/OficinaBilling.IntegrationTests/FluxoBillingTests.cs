@@ -1,5 +1,6 @@
 using System.Net;
 using FluentAssertions;
+using OficinaBilling.Application.Common;
 using OficinaBilling.IntegrationTests.Support;
 
 namespace OficinaBilling.IntegrationTests;
@@ -23,7 +24,7 @@ public class FluxoBillingTests : IAsyncLifetime
     {
         var os = await OsComOrcamentoAsync(); // 2 x 50 + 100 = 200
         var orcamento = await _d.ObterOrcamentoAsync(os);
-        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await _d.ExecucaoFinalizadaAsync(os)).Sucesso.Should().BeTrue();
         return (os, (await _d.ObterPagamentoAsync(os)).Id);
     }
@@ -36,15 +37,23 @@ public class FluxoBillingTests : IAsyncLifetime
         var orcamento = await _d.ObterOrcamentoAsync(os);
         orcamento.ValorTotal.Should().Be(200m);
         orcamento.Status.Should().Be("Gerado");
-        orcamento.Itens.Should().HaveCount(2);
+        orcamento.Pecas.Should().ContainSingle();
+        orcamento.Pecas[0].PecaId.Should().NotBeEmpty();
+        orcamento.Servicos.Should().ContainSingle();
+        orcamento.Servicos[0].ServicoId.Should().NotBeEmpty();
+        orcamento.ValidadeAte.Should().BeCloseTo(orcamento.GeradoEm.AddDays(7), TimeSpan.FromSeconds(1));
+        var json = System.Text.Json.JsonSerializer.Serialize(orcamento, JsonDefaults.Options);
+        json.Should().Contain("\"osId\"").And.NotContain("\"ordemServicoId\"");
 
-        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         await _d.ExecucaoFinalizadaAsync(os);
 
         var pagamento = await _d.ObterPagamentoAsync(os);
         pagamento.Status.Should().Be("Pendente");
         pagamento.Valor.Should().Be(200m);
         pagamento.LinkPagamento.Should().NotBeNullOrEmpty();
+        var pagamentoJson = System.Text.Json.JsonSerializer.Serialize(pagamento, JsonDefaults.Options);
+        pagamentoJson.Should().Contain("\"osId\"").And.Contain("\"mercadoPagoId\"").And.NotContain("\"ordemServicoId\"");
 
         (await _d.WebhookAsync($"fake-approved-{pagamento.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -109,7 +118,8 @@ public class FluxoBillingTests : IAsyncLifetime
         var os = await OsComOrcamentoAsync();
         var orcamento = await _d.ObterOrcamentoAsync(os);
 
-        (await _d.RecusarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.RecusarAsync(orcamento.Id, "Cliente não aprovou o valor")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _d.MotivoRecusaAsync(orcamento.Id)).Should().Be("Cliente não aprovou o valor");
         (await _d.ExecucaoFinalizadaAsync(os)).Sucesso.Should().BeFalse();
         await _d.PublicarOutboxAsync();
 
@@ -122,8 +132,8 @@ public class FluxoBillingTests : IAsyncLifetime
         var os = await OsComOrcamentoAsync();
         var id = (await _d.ObterOrcamentoAsync(os)).Id;
 
-        (await _d.AprovarAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await _d.AprovarAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.AprovarAsync(id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await _d.AprovarAsync(id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await _d.RecusarAsync(id)).StatusCode.Should().Be(HttpStatusCode.Conflict);
         await _d.PublicarOutboxAsync();
 
@@ -161,10 +171,28 @@ public class FluxoBillingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Aprovacao_de_orcamento_expirado_e_rejeitada()
+    {
+        var os = await OsComOrcamentoAsync();
+        var orcamento = await _d.ObterOrcamentoAsync(os);
+        await _d.DefinirOrcamentoExpiradoAsync(orcamento.Id);
+
+        (await _d.ExpirarOrcamentosVencidosAsync()).Should().BeGreaterThan(0);
+        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _d.ObterOrcamentoAsync(os)).Status.Should().Be("Expirado");
+    }
+
+    [Fact]
     public async Task Webhook_de_outro_tipo_e_ignorado_e_sem_id_e_400()
     {
         (await _d.WebhookAsync("123", type: "merchant_order")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await _d.WebhookSemIdAsync()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Webhook_de_pagamento_exige_chave_de_idempotencia()
+    {
+        (await _d.WebhookSemIdempotencyKeyAsync()).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

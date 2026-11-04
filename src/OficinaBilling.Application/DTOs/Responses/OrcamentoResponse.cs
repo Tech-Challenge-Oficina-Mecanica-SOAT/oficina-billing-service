@@ -2,11 +2,17 @@ namespace OficinaBilling.Application.DTOs.Responses;
 
 public sealed record OrcamentoResponse(
     Guid Id,
-    Guid OrdemServicoId,
+    Guid OsId,
     string Status,
+    IReadOnlyList<OrcamentoPecaResponse> Pecas,
+    IReadOnlyList<OrcamentoServicoResponse> Servicos,
+    IReadOnlyList<ItemOrcamentoLegadoResponse> ItensLegados,
     decimal ValorTotal,
-    DateTime CriadoEm,
-    DateTime? AprovadoEm,
-    IReadOnlyList<ItemOrcamentoResponse> Itens);
+    DateTime ValidadeAte,
+    DateTime GeradoEm);
 
-public sealed record ItemOrcamentoResponse(string Descricao, int Quantidade, decimal PrecoUnitario, decimal Subtotal);
+public sealed record OrcamentoPecaResponse(Guid PecaId, int Quantidade, decimal PrecoUnitario, decimal Subtotal);
+
+public sealed record OrcamentoServicoResponse(Guid ServicoId, int Quantidade, decimal PrecoUnitario, decimal Subtotal);
+
+public sealed record ItemOrcamentoLegadoResponse(string Descricao, int Quantidade, decimal PrecoUnitario, decimal Subtotal);

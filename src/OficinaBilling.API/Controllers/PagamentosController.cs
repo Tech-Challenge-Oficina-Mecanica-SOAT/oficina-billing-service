@@ -73,18 +73,18 @@ public class PagamentosController : ControllerBase
         // Idempotency-Key: o cliente (ou o próprio MP, via x-request-id) identifica a entrega.
         var chave = Request.Headers["X-Idempotency-Key"].FirstOrDefault()
                     ?? Request.Headers["x-request-id"].FirstOrDefault();
-        if (chave is not null)
-        {
-            chave = $"webhook:{chave}";
-            if (await idempotencia.JaProcessadoAsync(chave, ct))
-                return Ok(new { duplicado = true });
-        }
+        if (string.IsNullOrWhiteSpace(chave))
+            return BadRequest(new ProblemDetails { Detail = "Header X-Idempotency-Key ou x-request-id é obrigatório." });
+
+        chave = $"webhook:{chave}";
+        if (await idempotencia.JaProcessadoAsync(chave, ct))
+            return Ok(new { duplicado = true });
 
         var resultado = await useCase.ExecutarAsync(paymentId, ct);
 
         // Falhas de negócio (pagamento desconhecido, valor divergente) não melhoram com reenvio: 200.
         // A chave só é gravada em sucesso — falha transitória vira exceção/5xx e o MP reenvia.
-        if (chave is not null && resultado.Sucesso)
+        if (resultado.Sucesso)
             await idempotencia.RegistrarAsync(chave, ct);
 
         return Ok(new { processado = resultado.Sucesso });

@@ -16,8 +16,12 @@ public class ConsultarOrcamentoUseCase
     public async Task<Result<OrcamentoResponse>> ExecutarAsync(Guid ordemServicoId, CancellationToken ct = default)
     {
         var orcamento = await _orcamentoRepository.ObterPorOrdemServicoIdAsync(ordemServicoId, ct);
-        return orcamento is null
-            ? Result<OrcamentoResponse>.Falha("Orçamento não encontrado para a OS informada.", TipoErro.NaoEncontrado)
-            : Result<OrcamentoResponse>.Ok(orcamento.ParaResponse());
+        if (orcamento is null)
+            return Result<OrcamentoResponse>.Falha("Orçamento não encontrado para a OS informada.", TipoErro.NaoEncontrado);
+
+        if (orcamento.ExpirarSeVencido())
+            await _orcamentoRepository.SalvarAlteracoesAsync(ct);
+
+        return Result<OrcamentoResponse>.Ok(orcamento.ParaResponse());
     }
 }

@@ -27,14 +27,14 @@ public class BillingSteps
     public async Task QuandoAprova()
     {
         var orcamento = await _d.ObterOrcamentoAsync(_os);
-        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.AprovarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     [When(@"o cliente recusa o orçamento")]
     public async Task QuandoRecusa()
     {
         var orcamento = await _d.ObterOrcamentoAsync(_os);
-        (await _d.RecusarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _d.RecusarAsync(orcamento.Id)).StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     [Given(@"a execução da OS foi finalizada")]
