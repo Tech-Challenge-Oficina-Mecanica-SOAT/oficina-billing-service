@@ -149,6 +149,79 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------------------------
+  # Valida o deploy Kubernetes com Kind em todos os eventos do workflow.
+  # As evidências são anexadas à execução, sem depender de acesso a uma cloud.
+  # ---------------------------------------------------------------------------
+  local-k8s-deploy:
+    name: local-k8s-deploy
+    runs-on: ubuntu-latest
+    needs: build-test-quality
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: helm/kind-action@v1.13.0
+        with:
+          version: v0.33.0
+          kubectl_version: v1.37.1
+          cluster_name: oficina-billing-local
+          kubeconfig: ${{ runner.temp }}/config-kind-oficina-billing-local
+
+      - name: Deploy local com Kind
+        shell: pwsh
+        env:
+          KIND_KUBECONFIG: ${{ runner.temp }}/config-kind-oficina-billing-local
+        run: ./scripts/deploy-local-k8s.ps1 -Action Up
+
+      - name: Coletar evidências do cluster
+        if: always()
+        shell: pwsh
+        env:
+          KIND_KUBECONFIG: ${{ runner.temp }}/config-kind-oficina-billing-local
+        run: |
+          $evidence = "artifacts/k8s-evidence"
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          $kubeConfig = $env:KIND_KUBECONFIG
+
+          & kubectl --kubeconfig $kubeConfig get nodes -o wide 2>&1 |
+            Out-File -FilePath "$evidence/nodes.txt"
+          & kubectl --kubeconfig $kubeConfig -n oficina-billing-local get deployments,pods,services -o wide 2>&1 |
+            Out-File -FilePath "$evidence/workloads-and-services.txt"
+          & kubectl --kubeconfig $kubeConfig -n oficina-billing-local get events --sort-by=.lastTimestamp 2>&1 |
+            Out-File -FilePath "$evidence/events.txt"
+
+          if (Test-Path "$evidence/workloads-and-services.txt") {
+            Get-Content "$evidence/workloads-and-services.txt" |
+              Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Smoke checks de health e Swagger
+        shell: pwsh
+        env:
+          KIND_KUBECONFIG: ${{ runner.temp }}/config-kind-oficina-billing-local
+        run: |
+          $kubeConfig = $env:KIND_KUBECONFIG
+          $smokeOutput = & kubectl --kubeconfig $kubeConfig -n oficina-billing-local run billing-smoke `
+            --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- sh -c `
+            'for path in /health /health/ready /swagger/index.html; do code=$(curl -sS -o /dev/null -w "%{http_code}" "http://oficina-billing-service$path"); printf "%s %s\n" "$path" "$code"; [ "$code" = "200" ] || exit 1; done'
+          $exitCode = $LASTEXITCODE
+          $smokeOutput | Tee-Object -FilePath "artifacts/k8s-evidence/health-checks.txt"
+          if ($exitCode -ne 0) {
+            throw "Um ou mais health checks do Billing falharam."
+          }
+          $smokeOutput | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Publicar evidências do deploy local
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-k8s-evidence
+          path: artifacts/k8s-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
   # Deploy: homolog automático; prod só depois de homolog e com aprovação
   # (configure "Required reviewers" no GitHub Environment "prod").
   # ---------------------------------------------------------------------------

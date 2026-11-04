@@ -116,6 +116,35 @@ curl -X POST -H "X-Idempotency-Key: teste-approved-<pagamentoId>" \
    Titular **`APRO`** → aprovado · **`OTHE`** → recusado · **`CONT`** → pendente · CPF `12345678909`.
 7. O webhook chega, o Billing consulta o MP, confirma e publica `pagamento.confirmado` (acompanhe nos logs, com o mesmo `X-Correlation-Id`).
 
+## Demonstração Kubernetes local
+
+Com o Docker Desktop ativo e `make`, Kind e `kubectl` instalados, execute na raiz do repositório:
+
+```bash
+make k8s-local-up
+```
+
+O target chama o script PowerShell de deploy com uma política de execução restrita ao processo. Ele cria um cluster Kind local e usa um kubeconfig separado do contexto Kubernetes padrão. Implanta o Billing e um PostgreSQL no cluster; na primeira execução, a imagem `postgres:16` é baixada do Docker Hub. Mercado Pago fake e mensageria AWS ficam desabilitados para esta demonstração. O banco usa armazenamento efêmero e é recriado ao remover o cluster. Executar `make k8s-local-up` novamente reaproveita o Secret local do banco.
+
+O CI também executa esse mesmo [script de deploy](scripts/deploy-local-k8s.ps1) em um runner Linux com Kind após build e testes, tanto em pull requests para `main` quanto em pushes para `main`. O script aplica os [manifests locais](k8s/local/billing.yaml). O job coleta os estados dos nodes, Deployments, Pods e Services e executa smoke checks em `/health`, `/health/ready` e `/swagger/index.html`. O artefato `local-k8s-evidence` fica anexado à execução do GitHub Actions por 30 dias. Assim, o deploy de CI é automatizado e efêmero; o comando Make continua disponível para a demonstração local.
+
+Em outro terminal, abra o acesso local à API:
+
+```powershell
+kubectl --kubeconfig "$HOME\.kube\config-kind-oficina-billing-local" `
+  -n oficina-billing-local port-forward service/oficina-billing-service 5001:80
+```
+
+Valide `/health`, `/health/ready` e `/swagger` em `http://localhost:5001`. Para inspecionar os recursos, use `kubectl` com o mesmo `--kubeconfig` e o namespace `oficina-billing-local`.
+
+Esse procedimento comprova a execução do Billing em Kubernetes local; não equivale a um deploy em Kubernetes hospedado na nuvem.
+
+Para remover somente esse cluster e seus dados efêmeros, sem afetar os containers do Docker Compose:
+
+```bash
+make k8s-local-down
+```
+
 ## Testes e cobertura
 
 | Suíte | Projeto | O que cobre |
@@ -132,18 +161,18 @@ make coverage    # gera coverage-report/index.html e imprime o resumo
 - **Passo a passo para testes manuais**, incluindo como publicar eventos via SNS no LocalStack, validar o fluxo completo, observar eventos publicados, testar o webhook fake/Sandbox e consultar a DLQ: [docs/testing-guide.md](docs/testing-guide.md).
 - **Gate no CI:** o job `build-test-quality` falha se a cobertura de linhas ficar abaixo de **80 %**. A análise SonarCloud só é executada quando `SONAR_TOKEN` está configurado; sem ele, o CI não comprova o Quality Gate do Sonar.
 - Ficam fora da cobertura apenas código gerado pelo OpenAPI, composição da aplicação, migrations e adapters que só rodam contra serviços reais (listados em `coverage.runsettings`).
-- **Evidências:** [ver execuções do CI](https://github.com/Tech-Challenge-Oficina-Mecanica-SOAT/oficina-billing-service/actions/workflows/ci.yml) · [última execução consultada](https://github.com/Tech-Challenge-Oficina-Mecanica-SOAT/oficina-billing-service/actions/runs/40947887959) · o artefato `coverage-report` está disponível nessa execução.
-  - Essa execução publicou o relatório, mas **não terminou verde**: o deploy de homologação falhou porque `AWS_REGION` não estava configurada no GitHub Environment. Ela corresponde ao commit `51af277` e é anterior às alterações locais atuais; não deve ser apresentada como validação final delas.
-  - Após enviar as alterações atuais e obter uma execução bem-sucedida, atualize este item para apontar para essa nova execução. O relatório HTML pode ser baixado em **Actions → execução → Artifacts** e tem retenção limitada pelo GitHub.
+- **Evidências:** [execução bem-sucedida do CI no PR #3](https://github.com/Tech-Challenge-Oficina-Mecanica-SOAT/oficina-billing-service/actions/runs/41687569097) · [análise SonarCloud do PR #3](https://sonarcloud.io/dashboard?id=Tech-Challenge-Oficina-Mecanica-SOAT_oficina-billing-service&pullRequest=3) · o artefato `coverage-report` está disponível na execução do CI.
+  - Build, testes, cobertura mínima e Quality Gate do Sonar passaram no commit `84a8fd9`. O Sonar reportou **87,7% de cobertura em código novo**; esse número não representa a cobertura total do serviço.
+  - Os jobs `deploy-homolog` e `deploy-prod` foram pulados porque a execução foi disparada por um pull request. Portanto, essa evidência valida CI/qualidade, mas não comprova deploy nos ambientes Kubernetes. O relatório HTML pode ser baixado em **Actions → execução → Artifacts** e tem retenção limitada pelo GitHub.
 
 ## CI/CD (`.github/workflows`)
 
-`ci.yml` → `build-test-quality` (build, testes, cobertura, Sonar) · `terraform-validate` · `docker-build` (push no GHCR com a tag do commit) → `deploy-homolog` → `deploy-prod` (aprovação manual via GitHub Environment).
+`ci.yml`: `build-test-quality` (build, testes, cobertura, Sonar) é pré-requisito de `docker-build` e `local-k8s-deploy` (Kind efêmero + smoke tests; artefato `local-k8s-evidence`). `terraform-validate` valida a infraestrutura AWS. Em pushes para `main`, `deploy-homolog` depende do build da imagem e da validação Terraform; `deploy-prod` é executado depois de homolog, com aprovação manual via GitHub Environment.
 `deploy.yml` (reutilizável): `terraform apply` (banco, topics, fila, IAM) → `kubectl apply -k k8s/overlays/{env}` → `rollout status` → smoke test em `/health/ready`.
 
 **Variáveis do GitHub** (por Environment `homolog`/`prod`): `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER`, `TF_STATE_BUCKET`, `OIDC_PROVIDER_ARN`, `OIDC_PROVIDER_URL`, `WEBHOOK_HOST`; **segredos:** `AWS_ROLE_ARN`, `RDS_ADMIN_USERNAME`, `RDS_ADMIN_PASSWORD`. Do repositório: `SONAR_TOKEN` (segredo), `SONAR_PROJECT_KEY` e `SONAR_ORGANIZATION` (variáveis).
 
-**Branch `main` protegida** (PR obrigatório, 1 aprovação, checks verdes, sem push direto): `./scripts/protect-main.sh <owner>/<repo>`.
+**Branch `main` protegida** (PR obrigatório, 1 aprovação, checks verdes, sem push direto): `./scripts/protect-main.sh <owner>/<repo>`. Inclua `local-k8s-deploy` entre os checks obrigatórios para que o deploy em Kind e as evidências também sejam exigidos antes do merge.
 
 ## Infraestrutura
 
