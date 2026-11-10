@@ -180,6 +180,47 @@ make coverage    # gera coverage-report/index.html e imprime o resumo
 - **Kubernetes** (`k8s/base` + `overlays/homolog|prod`): Deployment (probes, requests/limits), Service, HPA, Ingress ALB **só para o webhook**, ServiceAccount com IRSA.
 - **New Relic:** agente na imagem, ativado no Deployment; crie o segredo da licença: `kubectl -n oficina-<env> create secret generic newrelic-license --from-literal=license-key=<KEY>`.
 
+## Deploy no AWS Academy
+
+O Academy proíbe IRSA/OIDC/ALB e roles IAM; o overlay `k8s/overlays/academy` e o script `scripts/deploy-academy.sh` contornam isso sem alterar `homolog` nem `prod`. Diferenças: namespace `oficina`, 1 réplica (o Mercado Pago fake guarda as cobranças em memória, por pod), HPA 1/1, sem anotação IRSA no ServiceAccount, sem Ingress ALB, `imagePullSecrets` `ghcr-pull-secret`, Mercado Pago fake sem validação de assinatura e `Secrets__Enabled=false`. O Cadastros é acessado direto em `http://oficina-cadastros-service.oficina.svc.cluster.local` (requer a imagem com a correção do campo `nome`).
+
+**Pré-requisitos, nesta ordem:** (1) RDS compartilhado criado (parâmetros SSM `/oficina/homolog/db/endpoint|port|username` e secret `oficina/homolog/db-password`); (2) OS Service e Cadastros Service com a mensageria aplicada, pois o Billing assina `os.cancelada`, `diagnostico.concluido` e `execucao.finalizada`; (3) `ghcr-pull-secret` no namespace `oficina`; (4) credenciais da sessão do lab exportadas e `kubectl` apontando para `oficina-eks-homolog`.
+
+**a) Terraform só da mensageria.** Copie `terraform/` para um diretório de trabalho, adicione `backend_override.tf` com `terraform { backend "local" {} }` e aplique apenas os recursos de mensageria:
+
+```bash
+cp -r terraform /tmp/billing-tf && cd /tmp/billing-tf
+printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+terraform init
+terraform apply \
+  -target=aws_sns_topic.owned -target=aws_ssm_parameter.owned_topic_arn \
+  -target=aws_sqs_queue.billing_dlq -target=aws_sqs_queue.billing_queue \
+  -target=aws_sqs_queue_redrive_allow_policy.billing_dlq -target=aws_sqs_queue_policy.billing_queue_policy \
+  -target=aws_sns_topic_subscription.consumed \
+  -var environment=homolog -var rds_admin_username=x -var rds_admin_password=x \
+  -var oidc_provider_arn=arn:aws:iam::<ACCOUNT>:oidc-provider/none -var oidc_provider_url=none
+```
+
+Ficam de fora de propósito os recursos de IAM (o Academy não permite criar roles), o provider `postgresql` (o RDS é privado, inacessível fora da VPC; o banco é criado pelas migrations ao subir) e o secret do Mercado Pago (o gateway é fake).
+
+**b) Deploy.** Informe a tag sha da imagem (GHCR) que contém a correção do contrato do Cadastros:
+
+```bash
+IMAGE_TAG=<sha> ./scripts/deploy-academy.sh
+```
+
+O script cria `billing-academy-secrets` (connection string montada com as credenciais do RDS compartilhado e as credenciais da sessão AWS) e `newrelic-license` (a partir de `oficina-secrets`, se existir), aplica o overlay, reinicia e aguarda o rollout. Nenhum segredo é impresso. Para validar o render sem acessar o cluster: `kubectl kustomize k8s/overlays/academy`.
+
+**c) Verificação do webhook fake.** Gere um orçamento e crie o pagamento pelo fluxo normal; em seguida, de dentro do cluster (por exemplo, um pod `curlimages/curl`), confirme o pagamento com o ID fake:
+
+```bash
+curl -X POST "http://oficina-billing-service.oficina.svc.cluster.local/pagamentos/webhook/mercado-pago?data.id=fake-approved-<PAGAMENTO_ID>&type=payment"
+```
+
+Detalhes do fluxo em `docs/testing-guide.md`.
+
+**d) Credenciais temporárias.** As credenciais do Academy expiram em cerca de 4 horas e ficam gravadas no Secret; ao renová-las, execute o script novamente.
+
 ## Decisões em aberto / premissas
 
 - Eventos consumidos e publicados seguem o envelope compartilhado (`eventType`/`data`, `osId`, `pecaId` e `servicoId`); aliases legados são aceitos pelo consumidor.
