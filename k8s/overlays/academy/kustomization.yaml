@@ -1,0 +1,42 @@
+# Overlay para o AWS Academy: sem IRSA/OIDC/ALB (proibidos no lab).
+# Diferencas em relacao a homolog: namespace oficina, credenciais da sessao via Secret (sem IRSA),
+# 1 replica (o Mercado Pago fake guarda as cobrancas em memoria, por pod), sem Ingress ALB e Mercado Pago fake.
+# A tag da imagem e um placeholder; scripts/deploy-academy.sh a substitui (IMAGE_TAG).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: oficina
+resources:
+  - ../../base
+images:
+  - name: ghcr.io/OWNER/oficina-billing-service
+    newName: ghcr.io/tech-challenge-oficina-mecanica-soat/oficina-billing-service
+    newTag: IMAGE_TAG_PLACEHOLDER
+patches:
+  - target: { kind: Deployment, name: oficina-billing-service }
+    patch: |-
+      - { op: replace, path: /spec/replicas, value: 1 }
+      - { op: add, path: /spec/template/spec/imagePullSecrets, value: [{ name: ghcr-pull-secret }] }
+      - { op: add, path: /spec/template/spec/containers/0/envFrom/-, value: { secretRef: { name: billing-academy-secrets } } }
+  - target: { kind: HorizontalPodAutoscaler, name: oficina-billing-service }
+    patch: |-
+      - { op: replace, path: /spec/minReplicas, value: 1 }
+      - { op: replace, path: /spec/maxReplicas, value: 1 }
+  - target: { kind: ServiceAccount, name: oficina-billing-service }
+    patch: |-
+      - { op: remove, path: /metadata/annotations }
+  - target: { kind: Ingress, name: oficina-billing-webhook }
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: oficina-billing-webhook
+  - target: { kind: ConfigMap, name: oficina-billing-config }
+    patch: |-
+      - { op: replace, path: /data/Messaging__Environment, value: "homolog" }
+      - { op: replace, path: /data/Services__OsService__BaseUrl, value: "http://oficina-os-service.oficina.svc.cluster.local" }
+      - { op: replace, path: /data/Services__CadastrosService__BaseUrl, value: "http://oficina-cadastros-service.oficina.svc.cluster.local" }
+      - { op: replace, path: /data/Secrets__Enabled, value: "false" }
+      - { op: replace, path: /data/MercadoPago__UseFake, value: "true" }
+      - { op: replace, path: /data/MercadoPago__ValidateSignature, value: "false" }
+      - { op: replace, path: /data/NEW_RELIC_APP_NAME, value: "oficina-billing-service" }
