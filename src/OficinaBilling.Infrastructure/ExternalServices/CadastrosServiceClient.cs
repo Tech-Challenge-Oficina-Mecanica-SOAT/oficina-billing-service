@@ -27,6 +27,10 @@ public class CadastrosServiceClient : ICadastrosServiceClient
             return null;
 
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<PrecoItem>(cancellationToken: ct);
+        var dto = await response.Content.ReadFromJsonAsync<CadastrosItemResponse>(cancellationToken: ct);
+        return dto is null ? null : new PrecoItem(dto.Id, dto.Nome ?? dto.Descricao ?? string.Empty, dto.PrecoUnitario);
     }
+
+    // Formato real do Cadastros: "nome". "descricao" fica como fallback de contrato antigo.
+    private sealed record CadastrosItemResponse(Guid Id, string? Nome, string? Descricao, decimal PrecoUnitario);
 }

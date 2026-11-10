@@ -6,7 +6,7 @@
       "response": {
         "status": 200,
         "headers": { "Content-Type": "application/json" },
-        "jsonBody": { "id": "{{request.pathSegments.[1]}}", "descricao": "Peça de teste", "precoUnitario": 1.50 }
+        "jsonBody": { "id": "{{request.pathSegments.[1]}}", "nome": "Peça de teste", "precoUnitario": 1.50 }
       }
     },
     {
@@ -15,7 +15,7 @@
       "response": {
         "status": 200,
         "headers": { "Content-Type": "application/json" },
-        "jsonBody": { "id": "{{request.pathSegments.[1]}}", "descricao": "Serviço de teste", "precoUnitario": 1.50 }
+        "jsonBody": { "id": "{{request.pathSegments.[1]}}", "nome": "Serviço de teste", "precoUnitario": 1.50 }
       }
     },
     {
