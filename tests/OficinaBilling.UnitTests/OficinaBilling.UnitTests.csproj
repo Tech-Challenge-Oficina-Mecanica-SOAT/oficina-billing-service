@@ -16,5 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\OficinaBilling.Domain\OficinaBilling.Domain.csproj" />
     <ProjectReference Include="..\..\src\OficinaBilling.Application\OficinaBilling.Application.csproj" />
+    <ProjectReference Include="..\..\src\OficinaBilling.Infrastructure\OficinaBilling.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
